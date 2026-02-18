@@ -6,6 +6,7 @@
 #include "core/material.h"
 #include "core/light.h"
 #include "geometry/sphere.h"
+#include "geometry/cylinder.h"
 #include "math/vec3.h"
 
 #include <vector>
@@ -311,6 +312,46 @@ class Scene {
                     }
 
                     add_obj(std::make_shared<Sphere<T>>(center, radius, current_material));
+                } else if (strcmp(keyword, "cylinder") == 0) {
+                    if (!mtlcolor_set) {
+                        printf("[ERROR] Material properties must be defined before objects.\n");
+                        fclose(file);
+                        return false;
+                    }
+                    
+                    float cx, cy, cz, dx, dy, dz, r, l;
+                    if (sscanf(line, "%*s %f %f %f %f %f %f %f %f", 
+                        &cx, &cy, &cz, 
+                        &dx, &dy, &dz, 
+                        &r, &l) < 8) {
+                        printf("[ERROR] Invalid cylinder parameters.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (r <= 0.0f) {
+                        printf("[ERROR] Cylinder radius must be positive.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (l <= 0.0f) {
+                        printf("[ERROR] Cylinder length must be positive.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (dx == 0.0f && dy == 0.0f && dz == 0.0f) {
+                        printf("[ERROR] Cylinder direction cannot be zero vector.\n");
+                        fclose(file);
+                        return false;
+                    }
+                    
+                    Point3<T> center = Point3<T>(static_cast<T>(cx), static_cast<T>(cy), static_cast<T>(cz));
+                    Vec3<T> direction = Vec3<T>(static_cast<T>(dx), static_cast<T>(dy), static_cast<T>(dz));
+                    T radius = static_cast<T>(r);
+                    T length = static_cast<T>(l);
+                    add_obj(std::make_shared<Cylinder<T>>(center, direction, radius, length, current_material));
                 } else {
                     printf("[WARNING] Unknown keyword: %s\n", keyword);
                 }

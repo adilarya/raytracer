@@ -1,0 +1,22 @@
+# Camera
+eye 0 0 5
+viewdir 0 0 -1
+updir 0 1 0
+vfov 45
+imsize 400 400
+bkgcolor 0.1 0.1 0.1
+depthcueing 0.1 0.1 0.1 0 1 5 8
+
+# -------- LIGHTS --------
+attlight 3 3 3 1 0.6 1 0.10 0.02
+
+# -------- OBJECTS --------
+
+# Reference shiny red sphere
+mtlcolor 0.8 0.1 0.1   1 1 1   0.1 0.7 0.5 50
+sphere 0 0 0 1
+
+# Rotated cylinder (cyan), tilted in X-Y plane
+# base near left-bottom, axis (1,1,0), radius 0.35, length 3.0
+mtlcolor 0.1 0.8 0.8   1 1 1   0.1 0.6 0.5 40
+cylinder -1.8 -1.2 0   1 1 0   0.35  3.0
