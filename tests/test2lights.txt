@@ -1,0 +1,28 @@
+# Camera
+eye 0 0 5
+viewdir 0 0 -1
+updir 0 1 0
+vfov 45
+imsize 400 400
+bkgcolor 0.1 0.1 0.1
+
+# -------- LIGHTS --------
+# Bright white point light from upper right
+light 3 3 3 1 0.6
+
+# Softer directional light from upper left
+# light -1 1 -1 0 0.4
+
+# -------- OBJECTS --------
+
+# Shiny red sphere (center)
+mtlcolor 0.8 0.1 0.1   1 1 1   0.1 0.7 0.5 50
+sphere 0 0 0 1
+
+# Matte blue sphere (left)
+mtlcolor 0.1 0.1 0.8   1 1 1   0.1 0.8 0.1 10
+sphere -2 0 -1 1
+
+# Green sphere behind to test shadowing
+mtlcolor 0.1 0.8 0.1   1 1 1   0.1 0.7 0.3 20
+sphere 1.5 -0.5 -2 1
