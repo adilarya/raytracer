@@ -55,13 +55,21 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
             int S = 32; // hyperparameter, number of samples for soft shadows
             for (int s = 0; s < S; s++) {
                 
-                Vec3<T> random(
+                // fixing square sampling to be within sphere radius of point light
+                Vec3<T> random_vec(
                     (static_cast<T>(rand()) / RAND_MAX - 0.5f) * 2.0f * radius,
                     (static_cast<T>(rand()) / RAND_MAX - 0.5f) * 2.0f * radius,
                     (static_cast<T>(rand()) / RAND_MAX - 0.5f) * 2.0f * radius
                 );
+                while (random_vec.length() > radius) { // resample until within sphere
+                    random_vec = Vec3<T>(
+                        (static_cast<T>(rand()) / RAND_MAX - 0.5f) * 2.0f * radius,
+                        (static_cast<T>(rand()) / RAND_MAX - 0.5f) * 2.0f * radius,
+                        (static_cast<T>(rand()) / RAND_MAX - 0.5f) * 2.0f * radius
+                    );
+                }
                 Point3<T> pos(light.direction.x, light.direction.y, light.direction.z);
-                Point3<T> Q = pos + random; // jittered light position; a cube of side length 2*radius centered at the point light position
+                Point3<T> Q = pos + random_vec; // jittered light position;
 
                 Vec3<T> Ls = Q - origin;
                 T dist_s = Ls.length();
@@ -70,7 +78,7 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
                 Ray<T> shadow_ray(origin, Ls);
 
                 Hit<T> tmp;
-                if (scene.objects.intersect(shadow_ray, eps, dist_s - eps, tmp)) {
+                if (scene.objects.intersect(shadow_ray, eps, std::max(dist_s - eps, eps), tmp)) {
                     continue; // in shadow, skip this sample
                 }
 
@@ -79,7 +87,16 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
                 Vec3<T> Hs = (Ls + V).normalize();
                 T ndoth = std::max(N.dot(Hs), T(0));
                 Vec3<T> spec = hit.material.ks * hit.material.Os * std::pow(ndoth, hit.material.n);
-                sum += (diffuse + spec);
+
+                // LIGHT ATTENUATION FOR POINT LIGHTS
+                T att = T(1);
+                if (light.has_attenuation) {
+                    T den = light.c1 + light.c2 * dist_s + light.c3 * dist_s * dist_s;
+                    den = std::max(den, T(1e-6)); // prevent division by zero or very small numbers
+                    att = 1 / den;
+                }
+
+                sum += att * (diffuse + spec);
             }
             color += light.intensity * (sum / static_cast<T>(S)); 
         }

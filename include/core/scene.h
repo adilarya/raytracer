@@ -163,6 +163,45 @@ class Scene {
                     new_light.type = ltype != 0; // treat any non-zero as point light
                     new_light.intensity = static_cast<T>(intensity);
                     add_light(new_light);
+                } else if (strcmp(keyword, "attlight") == 0) {
+                    float lx, ly, lz, intensity, lc1, lc2, lc3;
+                    int ltype;
+                    if (sscanf(line, "%*s %f %f %f %d %f %f %f %f", 
+                        &lx, &ly, &lz, &ltype, &intensity, &lc1, &lc2, &lc3) < 8) {
+                        printf("[ERROR] Invalid attlight parameters.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    // checking params before adding light
+                    if (ltype != 0 && ltype != 1) {
+                        printf("[ERROR] Invalid light type. Must be 0 (directional) or 1 (point).\n");
+                        fclose(file);
+                        return false;
+                    }
+                    if (intensity < 0.0f) {
+                        printf("[ERROR] Light intensity must be non-negative.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (lc1 < 0.0f || lc2 < 0.0f || lc3 < 0.0f) {
+                        printf("[ERROR] Light attenuation coefficients must be non-negative.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (lc1 == 0.0f && lc2 == 0.0f && lc3 == 0.0f) {
+                        printf("[ERROR] At least one attenuation coefficient must be positive.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    Vec3<T> dir = Vec3<T>(static_cast<T>(lx), static_cast<T>(ly), static_cast<T>(lz));
+                    bool t = ltype != 0; 
+                    Light<T> new_light(dir, t, static_cast<T>(intensity), static_cast<T>(lc1), static_cast<T>(lc2), static_cast<T>(lc3));
+                    add_light(new_light);
+                    
                 } else if (strcmp(keyword, "depthcueing") == 0){
                     float dcr, dcg, dcb, amin, amax, distmin, distmax;
                     if (sscanf(line, "%*s %f %f %f %f %f %f %f", 
