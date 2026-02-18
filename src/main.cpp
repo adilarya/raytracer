@@ -6,8 +6,13 @@
 #include <cstring>
 #include <string>   
 
+// for random seeds every time; for soft shadows
+#include <ctime>
+
 template<typename T>
 Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
+    // currently implements area-light Monte Carlo visibility
+
     T eps = T(1e-4);
     T inf = std::numeric_limits<T>::infinity();
 
@@ -26,40 +31,58 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
 
     // LIGHT LOOP -- DIFFUSE AND SPECULAR IF NOT SHADOWED
     for (const auto& light : scene.lights) {
-        Vec3<T> Lraw = light.direction_from(P);
-        T dist = light.distance_from(P);
 
-        Vec3<T> L = Lraw.normalize();
+        if (!light.type) { // directional == 0
+            Vec3<T> L = light.direction_from(P).normalize();
+            Point3<T> origin = P + N * eps;
+            Ray<T> shadow_ray(origin, L);
 
-        // SHADOW TEST
-        Point3<T> shadow_origin = P + N * eps; // offset to avoid self-intersection
-        Ray<T> shadow_ray(shadow_origin, L);
+            Hit<T> tmp;
+            if (scene.objects.intersect(shadow_ray, eps, inf, tmp)) {
+                continue; // in shadow, skip this light
+            }
 
-        T tmax_shadow = dist;
-        if (light.type) {
-            tmax_shadow = dist - eps; // avoid hitting the light itself
-        } else {
-            tmax_shadow = inf; // directional light, check all the way to infinity
+            Vec3<T> diffuse = hit.material.kd * hit.material.Od * std::max(N.dot(L), T(0));
+            Vec3<T> H = (L + V).normalize();
+            Vec3<T> spec = hit.material.ks * hit.material.Os * std::pow(std::max(N.dot(H), T(0)), hit.material.n);
+            color += light.intensity * (diffuse + spec);
+
+        } else { // point light == 1
+            Point3<T> origin = P + N * eps;
+            Vec3<T> sum(0, 0, 0);
+
+            T radius = T(0.1); // hyperparameter, radius of sphere light for soft shadows
+            int S = 32; // hyperparameter, number of samples for soft shadows
+            for (int s = 0; s < S; s++) {
+                
+                Vec3<T> random(
+                    (static_cast<T>(rand()) / RAND_MAX - 0.5f) * 2.0f * radius,
+                    (static_cast<T>(rand()) / RAND_MAX - 0.5f) * 2.0f * radius,
+                    (static_cast<T>(rand()) / RAND_MAX - 0.5f) * 2.0f * radius
+                );
+                Point3<T> pos(light.direction.x, light.direction.y, light.direction.z);
+                Point3<T> Q = pos + random; // jittered light position; a cube of side length 2*radius centered at the point light position
+
+                Vec3<T> Ls = Q - origin;
+                T dist_s = Ls.length();
+                Ls = Ls.normalize();
+
+                Ray<T> shadow_ray(origin, Ls);
+
+                Hit<T> tmp;
+                if (scene.objects.intersect(shadow_ray, eps, dist_s - eps, tmp)) {
+                    continue; // in shadow, skip this sample
+                }
+
+                T ndotl = std::max(N.dot(Ls), T(0));
+                Vec3<T> diffuse = hit.material.kd * hit.material.Od * ndotl;
+                Vec3<T> Hs = (Ls + V).normalize();
+                T ndoth = std::max(N.dot(Hs), T(0));
+                Vec3<T> spec = hit.material.ks * hit.material.Os * std::pow(ndoth, hit.material.n);
+                sum += (diffuse + spec);
+            }
+            color += light.intensity * (sum / static_cast<T>(S)); 
         }
-
-        Hit<T> tmp;
-        if (scene.objects.intersect(shadow_ray, eps, tmax_shadow, tmp)) {
-            continue; // in shadow, skip this light
-        }
-
-        // DIFFUSE -- LAMBERT
-        T ndotl = std::max(N.dot(L), T(0));
-        Vec3<T> diffuse = hit.material.kd * hit.material.Od * ndotl;
-
-        // SPECULAR -- BLINN-PHONG
-        Vec3<T> H = (L + V).normalize(); // half-vector
-        T ndoth = std::max(N.dot(H), T(0));
-        T specular_factor = std::pow(ndoth, hit.material.n);
-        Vec3<T> specular = hit.material.ks * hit.material.Os * specular_factor;
-
-        // APPLYING LIGHT INTENSITY
-        color += light.intensity * (diffuse + specular);
-
     }
     return color;
 }
@@ -133,6 +156,9 @@ int main (int argc, char *argv[]) {
         return 1;
     }
     printf("[SUCCESS] Scene loaded successfully from file: %s\n", argv[1]);
+
+    // INITIALIZING RANDOM SEED FOR SOFT SHADOWS
+    srand(static_cast<unsigned int>(time(0)));
 
     // RENDERING AND WRITING TO FILE
     RenderPPM(scene, argv[1]);

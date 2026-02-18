@@ -2,6 +2,7 @@
 #define VEC3_H
 
 #include "tuple.h"
+#include "point3.h"
 #include <cmath>
 
 template<typename T>
@@ -27,7 +28,6 @@ struct Vec3 : public Tuple3<Vec3, T> {
     T length() const {
         return std::sqrt(this->dot(*this));
     }
-
 };
 
 // free-function operators for Vec3 (dot, cross)

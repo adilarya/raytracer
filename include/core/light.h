@@ -31,7 +31,6 @@ struct Light {
             return (direction - Vec3<T>(p.x, p.y, p.z)).length();
         }
     }
-
 };
 
 #endif
