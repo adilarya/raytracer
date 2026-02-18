@@ -5,6 +5,7 @@ updir 0 1 0
 vfov 45
 imsize 400 400
 bkgcolor 0.1 0.1 0.1
+depthcueing 0.1 0.1 0.1 0 1 5 8
 
 # -------- LIGHTS --------
 # Bright white point light from upper right

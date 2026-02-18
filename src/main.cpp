@@ -84,6 +84,15 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
             color += light.intensity * (sum / static_cast<T>(S)); 
         }
     }
+
+    // IMPLEMENTING DEPTH CUEING
+    if (scene.depth_cueing_enabled) {
+        T d = (P - scene.camera.eye).length();
+        T t = std::min(std::max((d - scene.dist_min) / (scene.dist_max - scene.dist_min), T(0)), T(1));
+        T a = scene.alpha_min + t * (scene.alpha_max - scene.alpha_min);
+        color = (1 - a) * color + a * scene.dc;
+    }
+
     return color;
 }
 

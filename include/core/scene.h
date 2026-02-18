@@ -26,6 +26,14 @@ class Scene {
         Material<T> current_material;
         std::vector<Light<T>> lights;
 
+        // depth cueing parameters
+        bool depth_cueing_enabled = false; // useful in ShadeRay for checking if we need to apply depth cueing
+        Vec3<T> dc = Vec3<T>(0, 0, 0); // depth cue color
+        T alpha_min = 0;
+        T alpha_max = 1;
+        T dist_min = 0; 
+        T dist_max = 1;
+
         // constructors
         Scene() : camera(), objects(), bkgcolor(T(0), T(0), T(0)), current_material(), lights() {}
 
@@ -155,6 +163,52 @@ class Scene {
                     new_light.type = ltype != 0; // treat any non-zero as point light
                     new_light.intensity = static_cast<T>(intensity);
                     add_light(new_light);
+                } else if (strcmp(keyword, "depthcueing") == 0){
+                    float dcr, dcg, dcb, amin, amax, distmin, distmax;
+                    if (sscanf(line, "%*s %f %f %f %f %f %f %f", 
+                        &dcr, &dcg, &dcb, 
+                        &amin, &amax, 
+                        &distmin, &distmax) < 7) {
+                        printf("[ERROR] Invalid depthcueing parameters.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (dcr < 0.0f || dcr > 1.0f ||
+                        dcg < 0.0f || dcg > 1.0f ||
+                        dcb < 0.0f || dcb > 1.0f) {
+                        printf("[ERROR] Depth cueing color values must be in [0, 1].\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (amin < 0.0f || amin > 1.0f ||
+                        amax < 0.0f || amax > 1.0f ||
+                        distmin < 0.0f || distmax < 0.0f) {
+                        printf("[ERROR] Depth cueing depth and distance values must be non-negative.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (amin > amax) {
+                        printf("[ERROR] Depth cueing depth min must be less than or equal to depth max.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (distmin >= distmax) {
+                        printf("[ERROR] Depth cueing distance min must be less than distance max.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    Vec3<T> depth_cue = Vec3<T>(static_cast<T>(dcr), static_cast<T>(dcg), static_cast<T>(dcb));
+                    alpha_min = static_cast<T>(amin);
+                    alpha_max = static_cast<T>(amax);
+                    dist_min = static_cast<T>(distmin);
+                    dist_max = static_cast<T>(distmax);
+                    dc = depth_cue;
+                    depth_cueing_enabled = true;
                 } else if (strcmp(keyword, "mtlcolor") == 0) {
                     float Odx, Ody, Odz, Osx, Osy, Osz, ka, kd, ks, n;
                     if (sscanf(line, "%*s %f %f %f %f %f %f %f %f %f %f", 
