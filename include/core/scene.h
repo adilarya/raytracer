@@ -7,6 +7,7 @@
 #include "core/light.h"
 #include "geometry/sphere.h"
 #include "geometry/cylinder.h"
+#include "geometry/ellipsoid.h"
 #include "math/vec3.h"
 
 #include <vector>
@@ -280,7 +281,7 @@ class Scene {
                         current.kd < T(0.0f) || current.kd > T(1.0f) ||
                         current.ks < T(0.0f) || current.ks > T(1.0f) || 
                         current.n < T(0.0f) || current.n > T(128.0f)) { // commonly used range for shininess is [0, 128]    
-                        printf("[ERROR] mtlcolor values must be in [0, 1].\n");
+                        printf("[ERROR] mtlcolor values must be in [0, 1], shininess must be in [0, 128].\n");
                         fclose(file);
                         return false;
                     }
@@ -352,6 +353,31 @@ class Scene {
                     T radius = static_cast<T>(r);
                     T length = static_cast<T>(l);
                     add_obj(std::make_shared<Cylinder<T>>(center, direction, radius, length, current_material));
+                } else if (strcmp(keyword, "ellipsoid") == 0) {
+                    if (!mtlcolor_set) {
+                        printf("[ERROR] Material properties must be defined before objects.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    float cx, cy, cz, rx, ry, rz;
+                    if (sscanf(line, "%*s %f %f %f %f %f %f", 
+                        &cx, &cy, &cz,
+                        &rx, &ry, &rz) < 6) {
+                        printf("[ERROR] Invalid ellipsoid parameters.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (rx <= 0.0f || ry <= 0.0f || rz <= 0.0f) {
+                        printf("[ERROR] Ellipsoid radii must be positive.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    Point3<T> center = Point3<T>(static_cast<T>(cx), static_cast<T>(cy), static_cast<T>(cz));
+                    Vec3<T> radii = Vec3<T>(static_cast<T>(rx), static_cast<T>(ry), static_cast<T>(rz));
+                    add_obj(std::make_shared<Ellipsoid<T>>(center, radii, current_material));
                 } else {
                     printf("[WARNING] Unknown keyword: %s\n", keyword);
                 }

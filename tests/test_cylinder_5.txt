@@ -9,7 +9,7 @@ depthcueing 0.1 0.1 0.1 0 1 6 12
 
 # ---------------- LIGHTS ----------------
 # Strong white point light
-attlight 5 6 5 1 0.9 1 0.08 0.02
+attlight 3 4 3 1 1 1 0.08 0.02
 
 # Softer directional fill
 light -1 1 -1 0 0.3
