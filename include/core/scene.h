@@ -67,8 +67,10 @@ class Scene {
             Point3<T> eye;
             Vec3<T> viewdir;
             Vec3<T> updir;
-            T vfov;
+            T vfov = T(90); // default value, will be overridden if specified in file
             int width, height;
+
+            T frustum_height = T(0); // only used if parallel is specified
 
             // flags to check if required parameters are set
             bool eye_set = false;
@@ -78,6 +80,7 @@ class Scene {
             bool imsize_set = false;
             bool bkgcolor_set = false;
             bool mtlcolor_set = false;
+            bool parallel_set = false;
 
             char line[256]; // max line length
 
@@ -124,14 +127,45 @@ class Scene {
                         fclose(file);
                         return false;
                     }
+
+                    // vfov range
+                    if (vf <= 0.0f || vf >= 180.0f) {
+                        printf("[ERROR] vfov must be in (0, 180).\n");
+                        fclose(file);
+                        return false;
+                    }
+
                     vfov = static_cast<T>(vf);
                     vfov_set = true;
+                } else if (strcmp(keyword, "parallel") == 0) {
+                    float fh;
+                    if (sscanf(line, "%*s %f", &fh) < 1) {
+                        printf("[ERROR] Invalid parallel parameters.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (fh <= 0.0f) {
+                        printf("[ERROR] Frustum height must be positive.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    frustum_height = static_cast<T>(fh);
+                    parallel_set = true;
                 } else if (strcmp(keyword, "imsize") == 0) {
                     if (sscanf(line, "%*s %d %d", &width, &height) < 2) {
                         printf("[ERROR] Invalid imsize parameters.\n");
                         fclose(file);
                         return false;
                     }
+
+                    if (width <= 0 || height <= 0) {
+                        printf("[ERROR] Image dimensions must be positive.\n");
+                        fclose(file);
+                        return false;
+                    }
+
                     imsize_set = true;
                 } else if (strcmp(keyword, "bkgcolor") == 0) {
                     float bx, by, bz;
@@ -140,6 +174,16 @@ class Scene {
                         fclose(file);
                         return false;
                     }
+
+                    // bkgcolor range
+                    if (bx < 0.0f || bx > 1.0f ||
+                        by < 0.0f || by > 1.0f ||
+                        bz < 0.0f || bz > 1.0f) {
+                        printf("[ERROR] bkgcolor values must be in [0, 1].\n");
+                        fclose(file);
+                        return false;
+                    }
+
                     bkgcolor = Vec3<T>(static_cast<T>(bx), static_cast<T>(by), static_cast<T>(bz));
                     bkgcolor_set = true;
                 } else if (strcmp(keyword, "light") == 0) {
@@ -437,8 +481,8 @@ class Scene {
             } else if (!updir_set) {
                 printf("[ERROR] Missing updir parameters.\n");
                 return false;
-            } else if (!vfov_set) {
-                printf("[ERROR] Missing vfov parameters.\n");
+            } else if (!vfov_set && !parallel_set) { // parallel overrides if both are set, but at least one must be set
+                printf("[ERROR] Missing BOTH vfov and parallel parameters.\n");
                 return false;
             } else if (!imsize_set) {
                 printf("[ERROR] Missing imsize parameters.\n");
@@ -449,7 +493,7 @@ class Scene {
             } 
 
             // making the camera after parsing all params
-            camera = Camera<T>(eye, viewdir, updir, vfov, width, height);
+            camera = Camera<T>(eye, viewdir, updir, vfov, width, height, parallel_set, frustum_height);
 
             // checking if params are valid 
             T eps = T(1e-6);
@@ -472,27 +516,6 @@ class Scene {
                 printf("[ERROR] viewdir and updir cannot be collinear.\n");
                 return false;
             }
-
-            // vfov range
-            if (vfov <= 0.0f || vfov >= 180.0f) {
-                printf("[ERROR] vfov must be in (0, 180).\n");
-                return false;
-            }
-
-            // imsize positive
-            if (width <= 0 || height <= 0) {
-                printf("[ERROR] imsize dimensions must be positive.\n");
-                return false;
-            }
-
-            // bkgcolor range
-            if (bkgcolor.x < 0.0f || bkgcolor.x > 1.0f ||
-                bkgcolor.y < 0.0f || bkgcolor.y > 1.0f ||
-                bkgcolor.z < 0.0f || bkgcolor.z > 1.0f) {
-                printf("[ERROR] bkgcolor values must be in [0, 1].\n");
-                return false;
-            }
-
 
             return true;
         }

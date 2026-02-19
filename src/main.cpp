@@ -26,6 +26,10 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
     Vec3<T> N = hit.normal.toVec3();
     Point3<T> P = hit.point;
     Vec3<T> V = (scene.camera.eye - P).normalize(); // view dir
+    if (scene.camera.is_parallel) {
+        V = (-ray.direction).normalize();
+    }
+    
 
     Vec3<T> color = hit.material.ka * hit.material.Od; // ambient component
 
@@ -105,6 +109,9 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
     // IMPLEMENTING DEPTH CUEING
     if (scene.depth_cueing_enabled) {
         T d = (P - scene.camera.eye).length();
+        if (scene.camera.is_parallel) {
+            d = std::abs((P - scene.camera.eye).dot(scene.camera.forward));
+        }
         T t = std::min(std::max((d - scene.dist_min) / (scene.dist_max - scene.dist_min), T(0)), T(1));
         T a = scene.alpha_min + t * (scene.alpha_max - scene.alpha_min);
         color = (1 - a) * color + a * scene.dc;
