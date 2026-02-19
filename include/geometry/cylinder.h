@@ -19,7 +19,7 @@ class Cylinder : public Object<T> {
 
     public:
         // constructors
-        Cylinder() : center(Point3<T>(0, 0, 0)), direction(Vec3<T>(0, 1, 0)), radius(1), length(1), material(Material<T>()) {}
+        Cylinder() : center(Point3<T>(T(0), T(0), T(0))), direction(Vec3<T>(T(0), T(1), T(0))), radius(T(1)), length(T(1)), material(Material<T>()) {}
         Cylinder(const Point3<T>& center, const Vec3<T>& direction, T radius, T length, const Material<T>& material) 
             : center(center), direction(direction.normalize()), radius(radius), length(length), material(material) {}
 
@@ -43,11 +43,11 @@ class Cylinder : public Object<T> {
             // SIDE INTERSECTIONS
             T eps = T(1e-6);
             if (std::abs(a) >= eps) {
-                T discriminant = b * b - 4 * a * c;
+                T discriminant = b * b - T(4) * a * c;
                 if (discriminant >= 0) {
                     T sqrt_disc = std::sqrt(discriminant);
-                    T t0 = (-b - sqrt_disc) / (2 * a);
-                    T t1 = (-b + sqrt_disc) / (2 * a);
+                    T t0 = (-b - sqrt_disc) / (T(2) * a);
+                    T t1 = (-b + sqrt_disc) / (T(2) * a);
 
                     if (tmin <= t0 && t0 <= closest) {
                         T s = (ray.at(t0) - A).dot(u);

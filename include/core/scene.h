@@ -1,13 +1,16 @@
 #ifndef SCENE_H
 #define SCENE_H
 
-#include "core/camera.h"
 #include "geometry/object_list.h"
-#include "core/material.h"
-#include "core/light.h"
 #include "geometry/sphere.h"
 #include "geometry/cylinder.h"
 #include "geometry/ellipsoid.h"
+#include "geometry/cone.h"
+
+#include "core/material.h"
+#include "core/light.h"
+#include "core/camera.h"
+
 #include "math/vec3.h"
 
 #include <vector>
@@ -378,6 +381,46 @@ class Scene {
                     Point3<T> center = Point3<T>(static_cast<T>(cx), static_cast<T>(cy), static_cast<T>(cz));
                     Vec3<T> radii = Vec3<T>(static_cast<T>(rx), static_cast<T>(ry), static_cast<T>(rz));
                     add_obj(std::make_shared<Ellipsoid<T>>(center, radii, current_material));
+                } else if (strcmp(keyword, "cone") == 0) {
+                    if (!mtlcolor_set) {
+                        printf("[ERROR] Material properties must be defined before objects.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    float tx, ty, tz, dx, dy, dz, angle, height;
+                    if (sscanf(line, "%*s %f %f %f %f %f %f %f %f", 
+                        &tx, &ty, &tz,
+                        &dx, &dy, &dz,
+                        &angle, &height) < 8) {
+                        printf("[ERROR] Invalid cone parameters.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (angle <= 0.0f || angle >= 90.0f) {
+                        printf("[ERROR] Cone angle must be in (0, 90).\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (height <= 0.0f) {
+                        printf("[ERROR] Cone height must be positive.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    if (dx == 0.0f && dy == 0.0f && dz == 0.0f) {
+                        printf("[ERROR] Cone direction cannot be zero vector.\n");
+                        fclose(file);
+                        return false;
+                    }
+
+                    Point3<T> tip = Point3<T>(static_cast<T>(tx), static_cast<T>(ty), static_cast<T>(tz));
+                    Vec3<T> direction = Vec3<T>(static_cast<T>(dx), static_cast<T>(dy), static_cast<T>(dz));
+                    T cone_angle = static_cast<T>(T(angle) * std::acos(T(-1)) / T(180)); // convert to radians
+                    T cone_height = static_cast<T>(height);
+                    add_obj(std::make_shared<Cone<T>>(tip, direction, cone_angle, cone_height, current_material));
                 } else {
                     printf("[WARNING] Unknown keyword: %s\n", keyword);
                 }
