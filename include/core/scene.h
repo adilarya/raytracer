@@ -32,6 +32,7 @@ class Scene {
         Material<T> current_material;
         std::vector<Light<T>> lights;
         std::vector<Point3<T>> vertices; // for triangles
+        std::vector<Vec3<T>> normals; // for triangles
 
         // depth cueing parameters
         bool depth_cueing_enabled = false; // useful in ShadeRay for checking if we need to apply depth cueing
@@ -42,7 +43,7 @@ class Scene {
         T dist_max = 1;
 
         // constructors
-        Scene() : camera(), objects(), bkgcolor(T(0), T(0), T(0)), current_material(), lights() {}
+        Scene() : camera(), objects(), bkgcolor(T(0), T(0), T(0)), current_material(), lights(), vertices(), normals() {}
 
         // methods
         void add_obj(std::shared_ptr<Object<T>> obj) {
@@ -54,12 +55,16 @@ class Scene {
         void add_vertex(const Point3<T>& vertex) {
             vertices.push_back(vertex);
         }
+        void add_normal(const Vec3<T>& normal) {
+            normals.push_back(normal);
+        }
 
         // general parsing method
         bool parse(const std::string& filename) {
             objects.clear(); // clear any existing objects in the scene
             lights.clear();  // clear any existing lights in the scene
             vertices.clear(); // clear any existing vertices in the scene
+            normals.clear(); // clear any existing normals in the scene
 
             FILE* file = fopen(filename.c_str(), "r");
             if (file == NULL) {
@@ -480,6 +485,15 @@ class Scene {
                     }
                     Point3<T> vertex = Point3<T>(static_cast<T>(vx), static_cast<T>(vy), static_cast<T>(vz));
                     add_vertex(vertex);
+                } else if (strcmp(keyword, "vn") == 0) {
+                    float nx, ny, nz;
+                    if (sscanf(line, "%*s %f %f %f", &nx, &ny, &nz) < 3) {
+                        printf("[ERROR] Invalid normal parameters.\n");
+                        fclose(file);
+                        return false;
+                    }
+                    Vec3<T> normal = Vec3<T>(static_cast<T>(nx), static_cast<T>(ny), static_cast<T>(nz));
+                    add_normal(normal.normalize()); // normalize the normal vector before storing
                 } else if (strcmp(keyword, "f") == 0) {
                     if (!mtlcolor_set) {
                         printf("[ERROR] Material properties must be defined before objects.\n");
@@ -487,28 +501,82 @@ class Scene {
                         return false;
                     }
 
-                    int v1, v2, v3;
-                    if (sscanf(line, "%*s %d %d %d", &v1, &v2, &v3) < 3) {
+                    char token1[20], token2[20], token3[20];
+                    if (sscanf(line, "%*s %19s %19s %19s", token1, token2, token3) < 3) {
                         printf("[ERROR] Invalid face parameters.\n");
                         fclose(file);
                         return false;
                     }
-                    
-                    // checking vertex indices
-                    if (v1 < 1 || v2 < 1 || v3 < 1 || 
-                        v1 > static_cast<int>(vertices.size()) ||
-                        v2 > static_cast<int>(vertices.size()) ||
-                        v3 > static_cast<int>(vertices.size())) {
-                        printf("[ERROR] Face vertex indices out of bounds.\n");
-                        fclose(file);
-                        return false;
+
+                    if (strstr(token1, "//") != NULL || strstr(token2, "//") != NULL || strstr(token3, "//") != NULL) {
+                        if (strstr(token1, "//") == NULL || strstr(token2, "//") == NULL || strstr(token3, "//") == NULL) {
+                            printf("[ERROR] Inconsistent face format. All vertices must have normals or none should have normals.\n");
+                            fclose(file);
+                            return false;
+                        }
+
+                        int v1, v2, v3;
+                        int vn1, vn2, vn3;
+
+                        if (sscanf(token1, "%d//%d", &v1, &vn1) < 2 ||
+                            sscanf(token2, "%d//%d", &v2, &vn2) < 2 ||
+                            sscanf(token3, "%d//%d", &v3, &vn3) < 2) {
+                            printf("[ERROR] Invalid face parameters. Expected format: f v//vn v//vn v//vn\n");
+                            fclose(file);
+                            return false;
+                        }
+
+                        // check if vertex and normal indices are valid
+                        if (v1 <= 0 || v2 <= 0 || v3 <= 0 || 
+                            vn1 <= 0 || vn2 <= 0 || vn3 <= 0 || 
+                            v1 > static_cast<int>(vertices.size()) || 
+                            v2 > static_cast<int>(vertices.size()) || 
+                            v3 > static_cast<int>(vertices.size()) || 
+                            vn1 > static_cast<int>(normals.size()) || 
+                            vn2 > static_cast<int>(normals.size()) || 
+                            vn3 > static_cast<int>(normals.size())) {
+                            printf("[ERROR] Face vertex or normal index out of bounds.\n");
+                            fclose(file);
+                            return false;
+                        }
+
+                        Point3<T> vert1 = vertices[v1 - 1]; // convert to 0-based index
+                        Point3<T> vert2 = vertices[v2 - 1];
+                        Point3<T> vert3 = vertices[v3 - 1];
+
+                        Vec3<T> norm1 = normals[vn1 - 1];
+                        Vec3<T> norm2 = normals[vn2 - 1];
+                        Vec3<T> norm3 = normals[vn3 - 1];
+
+                        add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, norm1, norm2, norm3, current_material));
+                    } else {
+                        int v1, v2, v3;
+                        if (sscanf(token1, "%d", &v1) < 1 ||
+                            sscanf(token2, "%d", &v2) < 1 ||
+                            sscanf(token3, "%d", &v3) < 1) {
+                            printf("[ERROR] Invalid face parameters. Expected format: f v v v\n");
+                            fclose(file);
+                            return false;
+                        }
+
+                        // check if vertex indices are valid
+                        if (v1 <= 0 || v2 <= 0 || v3 <= 0 || 
+                            v1 > static_cast<int>(vertices.size()) || 
+                            v2 > static_cast<int>(vertices.size()) || 
+                            v3 > static_cast<int>(vertices.size())) {
+                            printf("[ERROR] Face vertex index out of bounds.\n");
+                            fclose(file);
+                            return false;
+                        }
+
+                        Point3<T> vert1 = vertices[v1 - 1]; // convert to 0-based index
+                        Point3<T> vert2 = vertices[v2 - 1];
+                        Point3<T> vert3 = vertices[v3 - 1];
+
+                        add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, current_material));
                     }
-                    
-                    // OBJ format is 1-indexed, so we need to subtract 1 to convert to 0-indexed
-                    Point3<T> vert1 = vertices[v1 - 1];
-                    Point3<T> vert2 = vertices[v2 - 1];
-                    Point3<T> vert3 = vertices[v3 - 1];
-                    add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, current_material));
+
+
                 } else {
                     printf("[WARNING] Unknown keyword: %s\n", keyword);
                 }

@@ -12,13 +12,17 @@ template <typename T>
 class Triangle : public Object<T> {
     // attributes
     Point3<T> v1, v2, v3; // vertices
-    Material<T> material; 
+    Vec3<T> vn1, vn2, vn3; // normals
+    Material<T> material;
+    bool has_vertex_normals = false; // flag to indicate if vertex normals are provided
 
     public:
         // constructors
         Triangle() : v1(Point3<T>(T(0), T(0), T(0))), v2(Point3<T>(T(1), T(0), T(0))), v3(Point3<T>(T(0), T(1), T(0))), material(Material<T>()) {}
         Triangle(const Point3<T>& v1, const Point3<T>& v2, const Point3<T>& v3, const Material<T>& material) 
-            : v1(v1), v2(v2), v3(v3), material(material) {}
+            : v1(v1), v2(v2), v3(v3), material(material) {} // for flat triangles
+        Triangle(const Point3<T>& v1, const Point3<T>& v2, const Point3<T>& v3, const Vec3<T>& vn1, const Vec3<T>& vn2, const Vec3<T>& vn3, const Material<T>& material) 
+            : v1(v1), v2(v2), v3(v3), vn1(vn1), vn2(vn2), vn3(vn3), material(material), has_vertex_normals(true) {} // for smooth triangles
 
         // specialized intersect function
         virtual bool intersect(const Ray<T>& ray, T tmin, T tmax, Hit<T>& hit) const override {
@@ -31,7 +35,7 @@ class Triangle : public Object<T> {
                 return false; // Ray is parallel to triangle
             }
 
-            T f = 1.0 / a;
+            T f = T(1.0) / a;
             Vec3<T> s = ray.origin - v1;
             T u = f * s.dot(h);
 
@@ -53,6 +57,11 @@ class Triangle : public Object<T> {
                 hit.t = t;
                 hit.point = ray.at(t);
                 Vec3<T> outward_normal = edge1.cross(edge2).normalize();
+                if (has_vertex_normals) { // for smooth triangles.
+                    // Interpolate vertex normals using barycentric coordinates
+                    Vec3<T> interpolated_normal = (T(1.0) - u - v) * vn1 + u * vn2 + v * vn3;
+                    outward_normal = interpolated_normal.normalize();
+                }
                 hit.set_face_normal(ray, normal_from_vec(outward_normal));
                 hit.material = material;
                 return true;
