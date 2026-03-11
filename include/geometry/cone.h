@@ -19,12 +19,16 @@ class Cone : public Object<T> {
     T angle; // radians
     T height;
     Material<T> material;
+    bool is_textured = false; // flag to indicate if the cone is textured
+    int texture_idx = -1; // index of the texture to use (if textured)
 
     public:
         // constructors
-        Cone() : tip(Point3<T>(T(0), T(0), T(0))), direction(Vec3<T>(T(0), T(1), T(0))), angle(T(45) * std::acos(T(-1)) / T(180)), height(T(1)), material(Material<T>()) {}
+        Cone() : tip(Point3<T>(T(0), T(0), T(0))), direction(Vec3<T>(T(0), T(1), T(0))), angle(T(45) * std::acos(T(-1)) / T(180)), height(T(1)), material(Material<T>()), is_textured(false), texture_idx(-1) {}
         Cone(const Point3<T>& tip, const Vec3<T>& direction, T angle, T height, const Material<T>& material) 
-            : tip(tip), direction(direction.normalize()), angle(angle), height(height), material(material) {}
+            : tip(tip), direction(direction.normalize()), angle(angle), height(height), material(material), is_textured(false), texture_idx(-1) {}
+        Cone(const Point3<T>& tip, const Vec3<T>& direction, T angle, T height, const Material<T>& material, int texture_idx)
+            : tip(tip), direction(direction.normalize()), angle(angle), height(height), material(material), is_textured(true), texture_idx(texture_idx) {}
 
         // specialized intersect function
         virtual bool intersect(const Ray<T>& ray, T tmin, T tmax, Hit<T>& hit) const override {
@@ -50,6 +54,11 @@ class Cone : public Object<T> {
             T b = T(2) * (ocDotA * dDotA - cosT2 * dDotOc);
             T c = ocDotA * ocDotA - cosT2 * ocDotOc;
 
+            Vec3<T> helper = (std::abs(A.x) < T(0.9)) ? Vec3<T>(T(1), T(0), T(0))
+                                                : Vec3<T>(T(0), T(1), T(0));
+            Vec3<T> tangent = A.cross(helper).normalize();
+            Vec3<T> bitangent = A.cross(tangent).normalize();
+
             // SIDE INTERSECTIONS
             T eps = T(1e-6);
             if (std::abs(a) >= eps) {
@@ -74,6 +83,21 @@ class Cone : public Object<T> {
                                 hit.material = material;
                                 hit_any = true;
                                 closest = t0;
+
+                                if (is_textured) {
+                                    // compute texture coordinates for the hit point on the cone surface
+                                    Vec3<T> radial = (v - A * m).normalize(); // vector from axis to hit point, lies in the cone surface plane
+                                    T phi = std::atan2(radial.dot(tangent), radial.dot(bitangent));
+                                    T u = (phi + std::acos(T(-1))) / (T(2) * std::acos(T(-1)));
+                                    T v_coord = m / height;
+                                    hit.uv = Point2<T>(u, v_coord);
+                                    hit.texture_idx = texture_idx;
+                                    hit.is_textured = true;
+                                } else {
+                                    hit.uv = Point2<T>(0, 0); // default texture coordinates if not textured
+                                    hit.texture_idx = -1; // no texture
+                                    hit.is_textured = false;
+                                }
                             }
                         }
                     }
@@ -93,6 +117,21 @@ class Cone : public Object<T> {
                                 hit.material = material;
                                 hit_any = true;
                                 closest = t1;
+
+                                if (is_textured) {
+                                    // compute texture coordinates for the hit point on the cone surface
+                                    Vec3<T> radial = (v - A * m).normalize(); // vector from axis to hit point, lies in the cone surface plane
+                                    T phi = std::atan2(radial.dot(tangent), radial.dot(bitangent));
+                                    T u = (phi + std::acos(T(-1))) / (T(2) * std::acos(T(-1)));
+                                    T v_coord = m / height;
+                                    hit.uv = Point2<T>(u, v_coord);
+                                    hit.texture_idx = texture_idx;
+                                    hit.is_textured = true;
+                                } else {
+                                    hit.uv = Point2<T>(0, 0); // default texture coordinates if not textured
+                                    hit.texture_idx = -1; // no texture
+                                    hit.is_textured = false;
+                                }
                             }
                         }
                     }
@@ -120,6 +159,20 @@ class Cone : public Object<T> {
                         hit.material = material;
                         hit_any = true;
                         closest = tcap;
+
+                        if (is_textured) {
+                            // compute texture coordinates for the hit point on the cone base
+                            Vec3<T> radial = pcap - base;
+                            T u = radial.dot(tangent) / (T(2) * r) + T(0.5);
+                            T v_coord = radial.dot(bitangent) / (T(2) * r) + T(0.5);
+                            hit.uv = Point2<T>(u, v_coord);
+                            hit.texture_idx = texture_idx;
+                            hit.is_textured = true;
+                        } else {
+                            hit.uv = Point2<T>(0, 0); // default texture coordinates if not textured
+                            hit.texture_idx = -1; // no texture
+                            hit.is_textured = false;
+                        }
                     }
                 }
 

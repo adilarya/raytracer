@@ -498,7 +498,12 @@ class Scene {
                     Vec3<T> direction = Vec3<T>(static_cast<T>(dx), static_cast<T>(dy), static_cast<T>(dz));
                     T cone_angle = static_cast<T>(T(angle) * std::acos(T(-1)) / T(180)); // convert to radians
                     T cone_height = static_cast<T>(height);
-                    add_obj(std::make_shared<Cone<T>>(tip, direction, cone_angle, cone_height, current_material));
+
+                    if (current_texture_idx >= 0) {
+                        add_obj(std::make_shared<Cone<T>>(tip, direction, cone_angle, cone_height, current_material, current_texture_idx));
+                    } else {
+                        add_obj(std::make_shared<Cone<T>>(tip, direction, cone_angle, cone_height, current_material));
+                    }
                 } else if (strcmp(keyword, "v") == 0) {
                     float vx, vy, vz;
                     if (sscanf(line, "%*s %f %f %f", &vx, &vy, &vz) < 3) {
