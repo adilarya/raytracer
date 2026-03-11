@@ -30,8 +30,16 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
         V = (-ray.direction).normalize();
     }
     
+    Vec3<T> material_Od = hit.material.Od; // base diffuse color from material
 
-    Vec3<T> color = hit.material.ka * hit.material.Od; // ambient component
+    if (hit.is_textured && hit.texture_idx >= 0 && hit.texture_idx < static_cast<int>(scene.textures.size())) {
+        const Texture<T>& tex = scene.textures[hit.texture_idx];
+        Point2<T> uv = hit.uv;
+        Vec3<T> tex_color = tex.sample(uv.x, uv.y);
+        material_Od = tex_color; 
+    }
+
+    Vec3<T> color = hit.material.ka * material_Od; // ambient component
 
     // LIGHT LOOP -- DIFFUSE AND SPECULAR IF NOT SHADOWED
     for (const auto& light : scene.lights) {
@@ -46,7 +54,7 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
                 continue; // in shadow, skip this light
             }
 
-            Vec3<T> diffuse = hit.material.kd * hit.material.Od * std::max(N.dot(L), T(0));
+            Vec3<T> diffuse = hit.material.kd * material_Od * std::max(N.dot(L), T(0));
             Vec3<T> H = (L + V).normalize();
             Vec3<T> spec = hit.material.ks * hit.material.Os * std::pow(std::max(N.dot(H), T(0)), hit.material.n);
             color += light.intensity * (diffuse + spec);
@@ -87,7 +95,7 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
                 }
 
                 T ndotl = std::max(N.dot(Ls), T(0));
-                Vec3<T> diffuse = hit.material.kd * hit.material.Od * ndotl;
+                Vec3<T> diffuse = hit.material.kd * material_Od * ndotl;
                 Vec3<T> Hs = (Ls + V).normalize();
                 T ndoth = std::max(N.dot(Hs), T(0));
                 Vec3<T> spec = hit.material.ks * hit.material.Os * std::pow(ndoth, hit.material.n);

@@ -6,6 +6,7 @@
 #include "core/material.h"
 #include "math/normal3.h"
 #include "math/point3.h"
+#include "math/point2.h"
 #include <cmath>
 
 template <typename T>
@@ -13,8 +14,11 @@ class Triangle : public Object<T> {
     // attributes
     Point3<T> v1, v2, v3; // vertices
     Vec3<T> vn1, vn2, vn3; // normals
+    Point2<T> uv1, uv2, uv3; // texture coordinates
     Material<T> material;
     bool has_vertex_normals = false; // flag to indicate if vertex normals are provided
+    bool is_textured = false; // flag to indicate if the triangle is textured
+    int texture_idx = -1; // index of the texture to use (if textured)
 
     public:
         // constructors
@@ -23,6 +27,10 @@ class Triangle : public Object<T> {
             : v1(v1), v2(v2), v3(v3), material(material) {} // for flat triangles
         Triangle(const Point3<T>& v1, const Point3<T>& v2, const Point3<T>& v3, const Vec3<T>& vn1, const Vec3<T>& vn2, const Vec3<T>& vn3, const Material<T>& material) 
             : v1(v1), v2(v2), v3(v3), vn1(vn1), vn2(vn2), vn3(vn3), material(material), has_vertex_normals(true) {} // for smooth triangles
+        Triangle(const Point3<T>& v1, const Point3<T>& v2, const Point3<T>& v3, const Point2<T>& uv1, const Point2<T>& uv2, const Point2<T>& uv3, const Material<T>& material, int texture_idx) 
+            : v1(v1), v2(v2), v3(v3), uv1(uv1), uv2(uv2), uv3(uv3), material(material), is_textured(true), texture_idx(texture_idx) {} // for textured flat triangles
+        Triangle(const Point3<T>& v1, const Point3<T>& v2, const Point3<T>& v3, const Vec3<T>& vn1, const Vec3<T>& vn2, const Vec3<T>& vn3, const Point2<T>& uv1, const Point2<T>& uv2, const Point2<T>& uv3, const Material<T>& material, int texture_idx)
+            : v1(v1), v2(v2), v3(v3), vn1(vn1), vn2(vn2), vn3(vn3), uv1(uv1), uv2(uv2), uv3(uv3), material(material), has_vertex_normals(true), is_textured(true), texture_idx(texture_idx) {} // for textured and smooth triangles
 
         // specialized intersect function
         virtual bool intersect(const Ray<T>& ray, T tmin, T tmax, Hit<T>& hit) const override {
@@ -64,6 +72,18 @@ class Triangle : public Object<T> {
                 }
                 hit.set_face_normal(ray, normal_from_vec(outward_normal));
                 hit.material = material;
+
+                if (is_textured) {
+                    // Interpolate texture coordinates using barycentric coordinates
+                    Point2<T> interpolated_uv = (T(1.0) - u - v) * uv1 + u * uv2 + v * uv3;
+                    hit.is_textured = true;
+                    hit.uv = interpolated_uv;
+                    hit.texture_idx = texture_idx;
+                } else {
+                    hit.is_textured = false;
+                    hit.texture_idx = -1;
+                }
+
                 return true;
             }
 

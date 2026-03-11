@@ -11,8 +11,10 @@
 #include "core/material.h"
 #include "core/light.h"
 #include "core/camera.h"
+#include "core/texture.h"
 
 #include "math/vec3.h"
+#include "math/point2.h"
 
 #include <vector>
 #include <cstdio>
@@ -33,6 +35,9 @@ class Scene {
         std::vector<Light<T>> lights;
         std::vector<Point3<T>> vertices; // for triangles
         std::vector<Vec3<T>> normals; // for triangles
+        std::vector<Point2<T>> texture_coords; 
+        std::vector<Texture<T>> textures; 
+        int current_texture_idx = -1;
 
         // depth cueing parameters
         bool depth_cueing_enabled = false; // useful in ShadeRay for checking if we need to apply depth cueing
@@ -43,7 +48,7 @@ class Scene {
         T dist_max = 1;
 
         // constructors
-        Scene() : camera(), objects(), bkgcolor(T(0), T(0), T(0)), current_material(), lights(), vertices(), normals() {}
+        Scene() : camera(), objects(), bkgcolor(T(0), T(0), T(0)), current_material(), lights(), vertices(), normals(), texture_coords(), textures(), current_texture_idx(-1) {}
 
         // methods
         void add_obj(std::shared_ptr<Object<T>> obj) {
@@ -58,6 +63,12 @@ class Scene {
         void add_normal(const Vec3<T>& normal) {
             normals.push_back(normal);
         }
+        void add_texture_coord(const Point2<T>& tex_coord) {
+            texture_coords.push_back(tex_coord);
+        }
+        void add_texture(const Texture<T>& texture) {
+            textures.push_back(texture);
+        }
 
         // general parsing method
         bool parse(const std::string& filename) {
@@ -65,6 +76,9 @@ class Scene {
             lights.clear();  // clear any existing lights in the scene
             vertices.clear(); // clear any existing vertices in the scene
             normals.clear(); // clear any existing normals in the scene
+            texture_coords.clear(); // clear any existing texture coordinates
+            textures.clear(); // clear any existing textures in the scene
+            current_texture_idx = -1; // reset current texture index
 
             FILE* file = fopen(filename.c_str(), "r");
             if (file == NULL) {
@@ -370,7 +384,11 @@ class Scene {
                         return false;
                     }
 
-                    add_obj(std::make_shared<Sphere<T>>(center, radius, current_material));
+                    if (current_texture_idx >= 0) {
+                        add_obj(std::make_shared<Sphere<T>>(center, radius, current_material, current_texture_idx));
+                    } else {
+                        add_obj(std::make_shared<Sphere<T>>(center, radius, current_material));
+                    }
                 } else if (strcmp(keyword, "cylinder") == 0) {
                     if (!mtlcolor_set) {
                         printf("[ERROR] Material properties must be defined before objects.\n");
@@ -494,6 +512,30 @@ class Scene {
                     }
                     Vec3<T> normal = Vec3<T>(static_cast<T>(nx), static_cast<T>(ny), static_cast<T>(nz));
                     add_normal(normal.normalize()); // normalize the normal vector before storing
+                } else if (strcmp(keyword, "vt") == 0) {
+                    float u, v;
+                    if (sscanf(line, "%*s %f %f", &u, &v) < 2) {
+                        printf("[ERROR] Invalid texture coordinate parameters.\n");
+                        fclose(file);
+                        return false;
+                    }
+                    Point2<T> tex_coord = Point2<T>(static_cast<T>(u), static_cast<T>(v));
+                    add_texture_coord(tex_coord);
+                } else if (strcmp(keyword, "texture") == 0) {
+                    char filename[100];
+                    if (sscanf(line, "%*s %99s", filename) < 1) {
+                        printf("[ERROR] Invalid texture parameters.\n");
+                        fclose(file);
+                        return false;
+                    }
+                    Texture<T> new_texture;
+                    if (!new_texture.load(filename)) {
+                        printf("[ERROR] Failed to load texture from file: %s\n", filename);
+                        fclose(file);
+                        return false;
+                    }
+                    add_texture(new_texture);
+                    current_texture_idx++; // update current texture index to the newly added texture
                 } else if (strcmp(keyword, "f") == 0) {
                     if (!mtlcolor_set) {
                         printf("[ERROR] Material properties must be defined before objects.\n");
@@ -549,6 +591,111 @@ class Scene {
                         Vec3<T> norm3 = normals[vn3 - 1];
 
                         add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, norm1, norm2, norm3, current_material));
+                    } else if (strchr(token1, '/') != NULL || strchr(token2, '/') != NULL || strchr(token3, '/') != NULL) {
+                        if (strchr(token1, '/') == NULL || strchr(token2, '/') == NULL || strchr(token3, '/') == NULL) {
+                            printf("[ERROR] Inconsistent face format. All vertices must have texture coordinates or none should have texture coordinates.\n");
+                            fclose(file);
+                            return false;
+                        }
+
+                        // deciding whether format is v/vt or v/vt/vn based on occurrences of '/' 
+                        int count = 0;
+                        for (char* c = token1; *c != '\0'; c++) {
+                            if (*c == '/') count++;
+                        }
+
+                        // if count is 2, format is v/vt/vn, if count is 1, format is v/vt
+                        if (count == 2) {
+                            int v1, v2, v3;
+                            int vt1, vt2, vt3;
+                            int vn1, vn2, vn3;
+
+                            if (sscanf(token1, "%d/%d/%d", &v1, &vt1, &vn1) < 3 ||
+                                sscanf(token2, "%d/%d/%d", &v2, &vt2, &vn2) < 3 ||
+                                sscanf(token3, "%d/%d/%d", &v3, &vt3, &vn3) < 3) {
+                                printf("[ERROR] Invalid face parameters. Expected format: f v/vt/vn v/vt/vn v/vt/vn\n");
+                                fclose(file);
+                                return false;
+                            }
+
+                            if (v1 <= 0 || v2 <= 0 || v3 <= 0 || 
+                                vt1 <= 0 || vt2 <= 0 || vt3 <= 0 || 
+                                vn1 <= 0 || vn2 <= 0 || vn3 <= 0 ||
+                                v1 > static_cast<int>(vertices.size()) || 
+                                v2 > static_cast<int>(vertices.size()) || 
+                                v3 > static_cast<int>(vertices.size()) || 
+                                vt1 > static_cast<int>(texture_coords.size()) || 
+                                vt2 > static_cast<int>(texture_coords.size()) || 
+                                vt3 > static_cast<int>(texture_coords.size()) ||
+                                vn1 > static_cast<int>(normals.size()) ||
+                                vn2 > static_cast<int>(normals.size()) ||
+                                vn3 > static_cast<int>(normals.size())) {
+                                printf("[ERROR] Face vertex, texture coordinate, or normal index out of bounds.\n");
+                                fclose(file);
+                                return false;
+                            }
+
+                            Point3<T> vert1 = vertices[v1 - 1]; // convert to 0-based index
+                            Point3<T> vert2 = vertices[v2 - 1];
+                            Point3<T> vert3 = vertices[v3 - 1];
+
+                            Point2<T> tex1 = texture_coords[vt1 - 1];
+                            Point2<T> tex2 = texture_coords[vt2 - 1];
+                            Point2<T> tex3 = texture_coords[vt3 - 1];
+
+                            Vec3<T> norm1 = normals[vn1 - 1];
+                            Vec3<T> norm2 = normals[vn2 - 1];
+                            Vec3<T> norm3 = normals[vn3 - 1];
+
+                            if (current_texture_idx < 0) {
+                                printf("[ERROR] Texture must be defined before faces that use textures.\n");
+                                fclose(file);
+                                return false;
+                            }
+
+                            add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, norm1, norm2, norm3, tex1, tex2, tex3, current_material, current_texture_idx));
+                        } else {
+                            int v1, v2, v3;
+                            int vt1, vt2, vt3;
+                            
+                            if (sscanf(token1, "%d/%d", &v1, &vt1) < 2 ||
+                                sscanf(token2, "%d/%d", &v2, &vt2) < 2 ||
+                                sscanf(token3, "%d/%d", &v3, &vt3) < 2) {
+                                printf("[ERROR] Invalid face parameters. Expected format: f v/vt v/vt v/vt\n");
+                                fclose(file);
+                                return false;
+                            }
+
+                            // check if vertex and texture coordinate indices are valid
+                            if (v1 <= 0 || v2 <= 0 || v3 <= 0 || 
+                                vt1 <= 0 || vt2 <= 0 || vt3 <= 0 || 
+                                v1 > static_cast<int>(vertices.size()) || 
+                                v2 > static_cast<int>(vertices.size()) || 
+                                v3 > static_cast<int>(vertices.size()) || 
+                                vt1 > static_cast<int>(texture_coords.size()) || 
+                                vt2 > static_cast<int>(texture_coords.size()) || 
+                                vt3 > static_cast<int>(texture_coords.size())) {
+                                printf("[ERROR] Face vertex or texture coordinate index out of bounds.\n");
+                                fclose(file);
+                                return false;
+                            }
+
+                            Point3<T> vert1 = vertices[v1 - 1]; // convert to 0-based index
+                            Point3<T> vert2 = vertices[v2 - 1];
+                            Point3<T> vert3 = vertices[v3 - 1];
+
+                            Point2<T> tex1 = texture_coords[vt1 - 1];
+                            Point2<T> tex2 = texture_coords[vt2 - 1];
+                            Point2<T> tex3 = texture_coords[vt3 - 1];
+
+                            if (current_texture_idx < 0) {
+                                printf("[ERROR] Texture must be defined before faces that use textures.\n");
+                                fclose(file);
+                                return false;
+                            }
+
+                            add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, tex1, tex2, tex3, current_material, current_texture_idx));
+                        }
                     } else {
                         int v1, v2, v3;
                         if (sscanf(token1, "%d", &v1) < 1 ||
