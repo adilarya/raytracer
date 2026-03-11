@@ -428,7 +428,12 @@ class Scene {
                     Vec3<T> direction = Vec3<T>(static_cast<T>(dx), static_cast<T>(dy), static_cast<T>(dz));
                     T radius = static_cast<T>(r);
                     T length = static_cast<T>(l);
-                    add_obj(std::make_shared<Cylinder<T>>(center, direction, radius, length, current_material));
+
+                    if (current_texture_idx >= 0) {
+                        add_obj(std::make_shared<Cylinder<T>>(center, direction, radius, length, current_material, current_texture_idx));
+                    } else {
+                        add_obj(std::make_shared<Cylinder<T>>(center, direction, radius, length, current_material));
+                    }
                 } else if (strcmp(keyword, "ellipsoid") == 0) {
                     if (!mtlcolor_set) {
                         printf("[ERROR] Material properties must be defined before objects.\n");

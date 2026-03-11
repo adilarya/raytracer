@@ -6,6 +6,7 @@
 #include "core/material.h"
 #include "math/normal3.h"
 #include "math/point3.h"
+#include "math/point2.h"
 #include <cmath>
 
 template <typename T>
@@ -16,12 +17,16 @@ class Cylinder : public Object<T> {
     T radius;
     T length;
     Material<T> material; 
+    bool is_textured = false; // flag to indicate if the cylinder is textured
+    int texture_idx = -1; // index of the texture to use (if textured)
 
     public:
         // constructors
-        Cylinder() : center(Point3<T>(T(0), T(0), T(0))), direction(Vec3<T>(T(0), T(1), T(0))), radius(T(1)), length(T(1)), material(Material<T>()) {}
+        Cylinder() : center(Point3<T>(T(0), T(0), T(0))), direction(Vec3<T>(T(0), T(1), T(0))), radius(T(1)), length(T(1)), material(Material<T>()), is_textured(false), texture_idx(-1) {}
         Cylinder(const Point3<T>& center, const Vec3<T>& direction, T radius, T length, const Material<T>& material) 
-            : center(center), direction(direction.normalize()), radius(radius), length(length), material(material) {}
+            : center(center), direction(direction.normalize()), radius(radius), length(length), material(material), is_textured(false), texture_idx(-1) {}
+        Cylinder(const Point3<T>& center, const Vec3<T>& direction, T radius, T length, const Material<T>& material, int texture_idx) 
+            : center(center), direction(direction.normalize()), radius(radius), length(length), material(material), is_textured(true), texture_idx(texture_idx) {}
 
         // specialized intersect function
         virtual bool intersect(const Ray<T>& ray, T tmin, T tmax, Hit<T>& hit) const override {
@@ -39,6 +44,13 @@ class Cylinder : public Object<T> {
             T a = D_perp.dot(D_perp);
             T b = 2 * AO_perp.dot(D_perp);
             T c = AO_perp.dot(AO_perp) - radius * radius;
+
+            Vec3<T> axis = direction.normalize();
+            Vec3<T> helper = (std::abs(axis.x) < T(0.9))
+                ? Vec3<T>(T(1), T(0), T(0))
+                : Vec3<T>(T(0), T(1), T(0));
+            Vec3<T> tangent = axis.cross(helper).normalize();
+            Vec3<T> bitangent = axis.cross(tangent).normalize();
 
             // SIDE INTERSECTIONS
             T eps = T(1e-6);
@@ -60,6 +72,23 @@ class Cylinder : public Object<T> {
                                 hit.material = material;
                                 hit_any = true;
                                 closest = t0;
+
+                                if (is_textured) {
+                                    // compute texture coordinates for the hit point on the cylinder
+                                    Vec3<T> radial = (hit.point - A - axis * s).normalize();
+                                    T phi = std::atan2(radial.dot(bitangent), radial.dot(tangent));
+                                    if (phi < T(0)) phi += T(2) * std::acos(T(-1));
+
+                                    T u_coord = phi / (T(2) * std::acos(T(-1)));
+                                    T v_coord = s / length;
+                                    hit.uv = Point2<T>(u_coord, v_coord);
+                                    hit.texture_idx = texture_idx;
+                                    hit.is_textured = true;
+                                } else {
+                                    hit.uv = Point2<T>(0, 0); // default texture coordinates if not textured
+                                    hit.texture_idx = -1; // no texture
+                                    hit.is_textured = false;
+                                }
                             }
                         }
                     }
@@ -75,6 +104,23 @@ class Cylinder : public Object<T> {
                                 hit.material = material;
                                 hit_any = true;
                                 closest = t1;
+
+                                if (is_textured) {
+                                    // compute texture coordinates for the hit point on the cylinder
+                                    Vec3<T> radial = (hit.point - A - axis * s).normalize();
+                                    T phi = std::atan2(radial.dot(bitangent), radial.dot(tangent));
+                                    if (phi < T(0)) phi += T(2) * std::acos(T(-1));
+
+                                    T u_coord = phi / (T(2) * std::acos(T(-1)));
+                                    T v_coord = s / length;
+                                    hit.uv = Point2<T>(u_coord, v_coord);
+                                    hit.texture_idx = texture_idx;
+                                    hit.is_textured = true;
+                                } else {
+                                    hit.uv = Point2<T>(0, 0); // default texture coordinates if not textured
+                                    hit.texture_idx = -1; // no texture
+                                    hit.is_textured = false;
+                                }
                             }
                         }
                     }
@@ -101,6 +147,23 @@ class Cylinder : public Object<T> {
                             hit.material = material;
                             hit_any = true;
                             closest = t;
+
+                            if (is_textured) {
+                                // compute texture coordinates for the hit point on the cylinder cap
+                                Vec3<T> radial = w_perp; // already lies in the cap plane
+                                T x = radial.dot(tangent);
+                                T y = radial.dot(bitangent);
+
+                                T u_coord = T(0.5) + x / (T(2) * radius);
+                                T v_coord = T(0.5) + y / (T(2) * radius);
+                                hit.uv = Point2<T>(u_coord, v_coord);
+                                hit.texture_idx = texture_idx;
+                                hit.is_textured = true;
+                            } else {
+                                hit.uv = Point2<T>(0, 0); // default texture coordinates if not textured
+                                hit.texture_idx = -1; // no texture
+                                hit.is_textured = false;
+                            }
                         }
                     }
                 }
@@ -120,6 +183,23 @@ class Cylinder : public Object<T> {
                             hit.material = material;
                             hit_any = true;
                             closest = t;
+
+                            if (is_textured) {
+                                // compute texture coordinates for the hit point on the cylinder cap
+                                Vec3<T> radial = w_perp; // already lies in the cap plane
+                                T x = radial.dot(tangent);
+                                T y = radial.dot(bitangent);
+
+                                T u_coord = T(0.5) + x / (T(2) * radius);
+                                T v_coord = T(0.5) + y / (T(2) * radius);
+                                hit.uv = Point2<T>(u_coord, v_coord);
+                                hit.texture_idx = texture_idx;
+                                hit.is_textured = true;
+                            } else {
+                                hit.uv = Point2<T>(0, 0); // default texture coordinates if not textured
+                                hit.texture_idx = -1; // no texture
+                                hit.is_textured = false;
+                            }
                         }
                     }
                 }
