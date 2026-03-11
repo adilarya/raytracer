@@ -458,7 +458,12 @@ class Scene {
 
                     Point3<T> center = Point3<T>(static_cast<T>(cx), static_cast<T>(cy), static_cast<T>(cz));
                     Vec3<T> radii = Vec3<T>(static_cast<T>(rx), static_cast<T>(ry), static_cast<T>(rz));
-                    add_obj(std::make_shared<Ellipsoid<T>>(center, radii, current_material));
+
+                    if (current_texture_idx >= 0) {
+                        add_obj(std::make_shared<Ellipsoid<T>>(center, radii, current_material, current_texture_idx));
+                    } else {
+                        add_obj(std::make_shared<Ellipsoid<T>>(center, radii, current_material));
+                    }
                 } else if (strcmp(keyword, "cone") == 0) {
                     if (!mtlcolor_set) {
                         printf("[ERROR] Material properties must be defined before objects.\n");

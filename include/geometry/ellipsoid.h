@@ -5,6 +5,7 @@
 #include "math/vec3.h"
 #include "core/material.h"
 #include "math/normal3.h"
+#include "math/point2.h"
 #include <cmath>
 
 template <typename T>
@@ -13,12 +14,16 @@ class Ellipsoid : public Object<T> {
     Point3<T> center;
     Vec3<T> radii; // (rx, ry, rz)
     Material<T> material;
+    bool is_textured = false; // flag to indicate if the ellipsoid is textured
+    int texture_idx = -1; // index of the texture to use (if textured)
 
     public:
         // constructors
-        Ellipsoid() : center(Point3<T>(T(0), T(0), T(0))), radii(Vec3<T>(T(1), T(1), T(1))), material(Material<T>()) {}
+        Ellipsoid() : center(Point3<T>(T(0), T(0), T(0))), radii(Vec3<T>(T(1), T(1), T(1))), material(Material<T>()), is_textured(false), texture_idx(-1) {}
         Ellipsoid(const Point3<T>& center, const Vec3<T>& radii, const Material<T>& material) 
-            : center(center), radii(radii), material(material) {}
+            : center(center), radii(radii), material(material), is_textured(false), texture_idx(-1) {}
+        Ellipsoid(const Point3<T>& center, const Vec3<T>& radii, const Material<T>& material, int texture_idx)
+            : center(center), radii(radii), material(material), is_textured(true), texture_idx(texture_idx) {}
 
         // specialized intersect function
         virtual bool intersect(const Ray<T>& ray, T tmin, T tmax, Hit<T>& hit) const override {
@@ -50,6 +55,25 @@ class Ellipsoid : public Object<T> {
             Vec3<T> outward_normal((pc.x / (radii.x * radii.x)), (pc.y / (radii.y * radii.y)), (pc.z / (radii.z * radii.z)));
             hit.set_face_normal(ray, normal_from_vec(outward_normal.normalize()));
             hit.material = material;
+
+            if (is_textured) {
+                Vec3<T> sphere_p(pc.x / radii.x, pc.y / radii.y, pc.z / radii.z);
+                sphere_p = sphere_p.normalize();
+
+                T pi = std::acos(T(-1));
+                T phi = std::atan2(sphere_p.z, sphere_p.x);
+                T u = (phi + pi) / (T(2) * pi);
+                T v = std::acos(sphere_p.y) / pi;
+
+                hit.uv = Point2<T>(u, v);
+                hit.texture_idx = texture_idx;
+                hit.is_textured = true;
+            } else {
+                hit.uv = Point2<T>(0, 0);
+                hit.texture_idx = -1;
+                hit.is_textured = false;
+            }
+
             return true;
         }
 };

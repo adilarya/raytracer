@@ -8,6 +8,7 @@
 #include "math/ray.h"
 #include "core/hit.h"
 #include "core/material.h"
+#include "math/point2.h"
 
 #include <cmath>
 
