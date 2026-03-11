@@ -15,14 +15,14 @@ class Sphere : public Object<T> {
     Point3<T> center; // center
     T radius; // radius
     Material<T> material; // material
-    bool is_textured = false; // flag to indicate if the sphere is textured
     int texture_idx = -1; // index of the texture to use (if textured)
+    int bump_map_idx = -1; // index of the bump map to use (if has bump map)
 
     public:
         // constructors
-        Sphere() : center(Point3<T>(0, 0, 0)), radius(1), material(Material<T>()), is_textured(false), texture_idx(-1) {}
-        Sphere(const Point3<T>& center, T radius, const Material<T>& material) : center(center), radius(radius), material(material), is_textured(false), texture_idx(-1) {}
-        Sphere(const Point3<T>& center, T radius, const Material<T>& material, int texture_idx) : center(center), radius(radius), material(material), is_textured(true), texture_idx(texture_idx) {}
+        Sphere() : center(Point3<T>(0, 0, 0)), radius(1), material(Material<T>()), texture_idx(-1), bump_map_idx(-1) {}
+        Sphere(const Point3<T>& center, T radius, const Material<T>& material, int texture_idx = -1, int bump_map_idx = -1) 
+            : center(center), radius(radius), material(material), texture_idx(texture_idx), bump_map_idx(bump_map_idx) {}
 
         // specialized intersect function
         virtual bool intersect(const Ray<T>& ray, T tmin, T tmax, Hit<T>& hit) const override {
@@ -48,8 +48,10 @@ class Sphere : public Object<T> {
             Vec3<T> outward_normal = (hit.point - center) / radius;
             hit.set_face_normal(ray, normal_from_vec(outward_normal));
             hit.material = material;
+            hit.texture_idx = texture_idx;
+            hit.bump_map_idx = bump_map_idx;
 
-            if (is_textured) {
+            if (texture_idx >= 0 || bump_map_idx >= 0) {
                 // compute texture coordinates for the hit point on the sphere
                 T pi = std::acos(T(-1));
                 T phi = std::atan2(outward_normal.y, outward_normal.x);
@@ -58,13 +60,25 @@ class Sphere : public Object<T> {
                 T u = phi / (T(2) * pi);
                 T v = theta / pi;
                 hit.uv = Point2<T>(u, v);
-                hit.texture_idx = texture_idx;
-                hit.is_textured = true;
-            } else {
-                hit.uv = Point2<T>(0, 0); // default texture coordinates if not textured
-                hit.texture_idx = -1; // no texture
-                hit.is_textured = false;
-            }
+
+                // compute tangent and bitangent for normal mapping
+                Vec3<T> tangent(-std::sin(phi), std::cos(phi), T(0));
+
+                // Bitangent = direction of increasing v (polar angle)
+                Vec3<T> bitangent(
+                    std::cos(phi) * -std::sin(theta),
+                    std::sin(phi) * -std::sin(theta),
+                    std::cos(theta)
+                );
+
+                // Make the frame consistent with the shading normal
+                Vec3<T> N = hit.normal.toVec3();
+                tangent = (tangent - N * tangent.dot(N)).normalize();
+                bitangent = N.cross(tangent).normalize();
+
+                hit.tangent = tangent;
+                hit.bitangent = bitangent;
+            } 
 
             return true;
         }

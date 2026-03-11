@@ -38,6 +38,8 @@ class Scene {
         std::vector<Point2<T>> texture_coords; 
         std::vector<Texture<T>> textures; 
         int current_texture_idx = -1;
+        std::vector<Texture<T>> bump_maps;
+        int current_bump_map_idx = -1;
 
         // depth cueing parameters
         bool depth_cueing_enabled = false; // useful in ShadeRay for checking if we need to apply depth cueing
@@ -69,6 +71,9 @@ class Scene {
         void add_texture(const Texture<T>& texture) {
             textures.push_back(texture);
         }
+        void add_bump_map(const Texture<T>& bump_map) {
+            bump_maps.push_back(bump_map);
+        }
 
         // general parsing method
         bool parse(const std::string& filename) {
@@ -79,6 +84,8 @@ class Scene {
             texture_coords.clear(); // clear any existing texture coordinates
             textures.clear(); // clear any existing textures in the scene
             current_texture_idx = -1; // reset current texture index
+            bump_maps.clear(); // clear any existing bump maps in the scene
+            current_bump_map_idx = -1; // reset current bump map index
 
             FILE* file = fopen(filename.c_str(), "r");
             if (file == NULL) {
@@ -384,8 +391,12 @@ class Scene {
                         return false;
                     }
 
-                    if (current_texture_idx >= 0) {
+                    if (current_texture_idx >= 0 && current_bump_map_idx >= 0) {
+                        add_obj(std::make_shared<Sphere<T>>(center, radius, current_material, current_texture_idx, current_bump_map_idx));
+                    } else if (current_texture_idx >= 0) {
                         add_obj(std::make_shared<Sphere<T>>(center, radius, current_material, current_texture_idx));
+                    } else if (current_bump_map_idx >= 0) {
+                        add_obj(std::make_shared<Sphere<T>>(center, radius, current_material, -1, current_bump_map_idx));
                     } else {
                         add_obj(std::make_shared<Sphere<T>>(center, radius, current_material));
                     }
@@ -429,8 +440,12 @@ class Scene {
                     T radius = static_cast<T>(r);
                     T length = static_cast<T>(l);
 
-                    if (current_texture_idx >= 0) {
+                    if (current_texture_idx >= 0 && current_bump_map_idx >= 0) {
+                        add_obj(std::make_shared<Cylinder<T>>(center, direction, radius, length, current_material, current_texture_idx, current_bump_map_idx));
+                    } else if (current_texture_idx >= 0) {
                         add_obj(std::make_shared<Cylinder<T>>(center, direction, radius, length, current_material, current_texture_idx));
+                    } else if (current_bump_map_idx >= 0) {
+                        add_obj(std::make_shared<Cylinder<T>>(center, direction, radius, length, current_material, -1, current_bump_map_idx));
                     } else {
                         add_obj(std::make_shared<Cylinder<T>>(center, direction, radius, length, current_material));
                     }
@@ -459,8 +474,12 @@ class Scene {
                     Point3<T> center = Point3<T>(static_cast<T>(cx), static_cast<T>(cy), static_cast<T>(cz));
                     Vec3<T> radii = Vec3<T>(static_cast<T>(rx), static_cast<T>(ry), static_cast<T>(rz));
 
-                    if (current_texture_idx >= 0) {
+                    if (current_texture_idx >= 0 && current_bump_map_idx >= 0) {
+                        add_obj(std::make_shared<Ellipsoid<T>>(center, radii, current_material, current_texture_idx, current_bump_map_idx));
+                    } else if (current_texture_idx >= 0) {
                         add_obj(std::make_shared<Ellipsoid<T>>(center, radii, current_material, current_texture_idx));
+                    } else if (current_bump_map_idx >= 0) {
+                        add_obj(std::make_shared<Ellipsoid<T>>(center, radii, current_material, -1, current_bump_map_idx));
                     } else {
                         add_obj(std::make_shared<Ellipsoid<T>>(center, radii, current_material));
                     }
@@ -504,8 +523,12 @@ class Scene {
                     T cone_angle = static_cast<T>(T(angle) * std::acos(T(-1)) / T(180)); // convert to radians
                     T cone_height = static_cast<T>(height);
 
-                    if (current_texture_idx >= 0) {
+                    if (current_texture_idx >= 0 && current_bump_map_idx >= 0) {
+                        add_obj(std::make_shared<Cone<T>>(tip, direction, cone_angle, cone_height, current_material, current_texture_idx, current_bump_map_idx));
+                    } else if (current_texture_idx >= 0) {
                         add_obj(std::make_shared<Cone<T>>(tip, direction, cone_angle, cone_height, current_material, current_texture_idx));
+                    } else if (current_bump_map_idx >= 0) {
+                        add_obj(std::make_shared<Cone<T>>(tip, direction, cone_angle, cone_height, current_material, -1, current_bump_map_idx));
                     } else {
                         add_obj(std::make_shared<Cone<T>>(tip, direction, cone_angle, cone_height, current_material));
                     }
@@ -605,7 +628,13 @@ class Scene {
                         Vec3<T> norm2 = normals[vn2 - 1];
                         Vec3<T> norm3 = normals[vn3 - 1];
 
-                        add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, norm1, norm2, norm3, current_material));
+                        Point2<T> filler = Point2<T>(T(0), T(0));
+
+                        if (current_bump_map_idx >= 0) {
+                            add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, current_material, norm1, norm2, norm3, filler, filler, filler, true, -1, current_bump_map_idx));
+                        } else {
+                            add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, current_material, norm1, norm2, norm3, filler, filler, filler, true, -1, -1));
+                        }
                     } else if (strchr(token1, '/') != NULL || strchr(token2, '/') != NULL || strchr(token3, '/') != NULL) {
                         if (strchr(token1, '/') == NULL || strchr(token2, '/') == NULL || strchr(token3, '/') == NULL) {
                             printf("[ERROR] Inconsistent face format. All vertices must have texture coordinates or none should have texture coordinates.\n");
@@ -668,7 +697,11 @@ class Scene {
                                 return false;
                             }
 
-                            add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, norm1, norm2, norm3, tex1, tex2, tex3, current_material, current_texture_idx));
+                            if (current_bump_map_idx >= 0) {
+                                add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, current_material, norm1, norm2, norm3, tex1, tex2, tex3, true, current_texture_idx, current_bump_map_idx));
+                            } else {
+                                add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, current_material, norm1, norm2, norm3, tex1, tex2, tex3, true, current_texture_idx, -1));
+                            }
                         } else {
                             int v1, v2, v3;
                             int vt1, vt2, vt3;
@@ -709,7 +742,13 @@ class Scene {
                                 return false;
                             }
 
-                            add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, tex1, tex2, tex3, current_material, current_texture_idx));
+                            Vec3<T> filler = Vec3<T>(T(0), T(0), T(0));
+                            
+                            if (current_bump_map_idx >= 0) {
+                                add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, current_material, filler, filler, filler, tex1, tex2, tex3, false, current_texture_idx, current_bump_map_idx));
+                            } else {
+                                add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, current_material, filler, filler, filler, tex1, tex2, tex3, false, current_texture_idx, -1));
+                            }
                         }
                     } else {
                         int v1, v2, v3;
@@ -735,10 +774,32 @@ class Scene {
                         Point3<T> vert2 = vertices[v2 - 1];
                         Point3<T> vert3 = vertices[v3 - 1];
 
-                        add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, current_material));
+                        Vec3<T> filler = Vec3<T>(T(0), T(0), T(0));
+                        Point2<T> filler2 = Point2<T>(T(0), T(0));
+                        
+                        if (current_bump_map_idx >= 0) {
+                            add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, current_material, filler, filler, filler, filler2, filler2, filler2, false, -1, current_bump_map_idx));
+                        } else {
+                            add_obj(std::make_shared<Triangle<T>>(vert1, vert2, vert3, current_material, filler, filler, filler, filler2, filler2, filler2, false, -1, -1));
+                        }
                     }
 
 
+                } else if (strcmp(keyword, "bump") == 0) {
+                    char filename[100];
+                    if (sscanf(line, "%*s %99s", filename) < 1) {
+                        printf("[ERROR] Invalid bump parameters.\n");
+                        fclose(file);
+                        return false;
+                    }
+                    Texture<T> new_bump;
+                    if (!new_bump.load(filename)) {
+                        printf("[ERROR] Failed to load bump map from file: %s\n", filename);
+                        fclose(file);
+                        return false;
+                    }
+                    add_bump_map(new_bump);
+                    current_bump_map_idx++; // update current bump map index to the newly added bump map
                 } else {
                     printf("[WARNING] Unknown keyword: %s\n", keyword);
                 }

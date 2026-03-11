@@ -14,12 +14,14 @@ struct Hit {
     T t; // ray parameter at hit point
     bool front_face; // whether the ray hits the front face
     Material<T> material; // material at hit point
-    bool is_textured;
-    Point2<T> uv; // texture coordinates (if textured)
-    int texture_idx; // index of the texture (if textured)
+    Point2<T> uv; // surface UV coordinates
+    int texture_idx = -1; // index of the texture (if textured)
+    int bump_map_idx = -1; // index of the bump map (if has bump map)
+    Vec3<T> tangent; // tangent vector for bump mapping
+    Vec3<T> bitangent; // bitangent vector for bump mapping
 
     // default constructor
-    Hit() : point(), normal(), t(T(0)), front_face(true), material(), is_textured(false), uv(), texture_idx(-1) {}
+    Hit() : point(), normal(), t(T(0)), front_face(true), material(), uv(), texture_idx(-1), bump_map_idx(-1) {}
     
     // set the normal direction based on ray direction
     inline void set_face_normal(const Ray<T>& r, const Normal3<T>& outward_normal) {

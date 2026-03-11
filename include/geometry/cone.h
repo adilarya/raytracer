@@ -20,16 +20,14 @@ class Cone : public Object<T> {
     T angle; // radians
     T height;
     Material<T> material;
-    bool is_textured = false; // flag to indicate if the cone is textured
     int texture_idx = -1; // index of the texture to use (if textured)
+    int bump_map_idx = -1; // index of the bump map to use (if has bump map)
 
     public:
         // constructors
-        Cone() : tip(Point3<T>(T(0), T(0), T(0))), direction(Vec3<T>(T(0), T(1), T(0))), angle(T(45) * std::acos(T(-1)) / T(180)), height(T(1)), material(Material<T>()), is_textured(false), texture_idx(-1) {}
-        Cone(const Point3<T>& tip, const Vec3<T>& direction, T angle, T height, const Material<T>& material) 
-            : tip(tip), direction(direction.normalize()), angle(angle), height(height), material(material), is_textured(false), texture_idx(-1) {}
-        Cone(const Point3<T>& tip, const Vec3<T>& direction, T angle, T height, const Material<T>& material, int texture_idx)
-            : tip(tip), direction(direction.normalize()), angle(angle), height(height), material(material), is_textured(true), texture_idx(texture_idx) {}
+        Cone() : tip(Point3<T>(T(0), T(0), T(0))), direction(Vec3<T>(T(0), T(1), T(0))), angle(T(45) * std::acos(T(-1)) / T(180)), height(T(1)), material(Material<T>()), texture_idx(-1), bump_map_idx(-1) {}
+        Cone(const Point3<T>& tip, const Vec3<T>& direction, T angle, T height, const Material<T>& material, int texture_idx = -1, int bump_map_idx = -1) 
+            : tip(tip), direction(direction.normalize()), angle(angle), height(height), material(material), texture_idx(texture_idx), bump_map_idx(bump_map_idx) {}
 
         // specialized intersect function
         virtual bool intersect(const Ray<T>& ray, T tmin, T tmax, Hit<T>& hit) const override {
@@ -85,20 +83,29 @@ class Cone : public Object<T> {
                                 hit_any = true;
                                 closest = t0;
 
-                                if (is_textured) {
-                                    // compute texture coordinates for the hit point on the cone surface
-                                    Vec3<T> radial = (v - A * m).normalize(); // vector from axis to hit point, lies in the cone surface plane
-                                    T phi = std::atan2(radial.dot(tangent), radial.dot(bitangent));
-                                    T u = (phi + std::acos(T(-1))) / (T(2) * std::acos(T(-1)));
+                                hit.texture_idx = texture_idx;
+                                hit.bump_map_idx = bump_map_idx;
+
+                                if (texture_idx >= 0 || bump_map_idx >= 0) {
+                                    Vec3<T> radial = (v - A * m).normalize();
+                                    T pi = std::acos(T(-1));
+                                    T phi = std::atan2(radial.dot(bitangent), radial.dot(tangent));
+                                    if (phi < T(0)) phi += T(2) * pi;
+
+                                    T u = phi / (T(2) * pi);
                                     T v_coord = m / height;
                                     hit.uv = Point2<T>(u, v_coord);
-                                    hit.texture_idx = texture_idx;
-                                    hit.is_textured = true;
-                                } else {
-                                    hit.uv = Point2<T>(0, 0); // default texture coordinates if not textured
-                                    hit.texture_idx = -1; // no texture
-                                    hit.is_textured = false;
-                                }
+
+                                    // Tangent = direction of increasing u around the cone
+                                    Vec3<T> Tside = (-std::sin(phi)) * tangent + (std::cos(phi)) * bitangent;
+
+                                    Vec3<T> N = hit.normal.toVec3();
+                                    Tside = (Tside - N * Tside.dot(N)).normalize();
+                                    Vec3<T> Bside = N.cross(Tside).normalize();
+
+                                    hit.tangent = Tside;
+                                    hit.bitangent = Bside;
+                                } 
                             }
                         }
                     }
@@ -119,20 +126,28 @@ class Cone : public Object<T> {
                                 hit_any = true;
                                 closest = t1;
 
-                                if (is_textured) {
-                                    // compute texture coordinates for the hit point on the cone surface
-                                    Vec3<T> radial = (v - A * m).normalize(); // vector from axis to hit point, lies in the cone surface plane
-                                    T phi = std::atan2(radial.dot(tangent), radial.dot(bitangent));
-                                    T u = (phi + std::acos(T(-1))) / (T(2) * std::acos(T(-1)));
+                                hit.texture_idx = texture_idx;
+                                hit.bump_map_idx = bump_map_idx;
+
+                                if (texture_idx >= 0 || bump_map_idx >= 0) {
+                                    Vec3<T> radial = (v - A * m).normalize();
+                                    T pi = std::acos(T(-1));
+                                    T phi = std::atan2(radial.dot(bitangent), radial.dot(tangent));
+                                    if (phi < T(0)) phi += T(2) * pi;
+
+                                    T u = phi / (T(2) * pi);
                                     T v_coord = m / height;
                                     hit.uv = Point2<T>(u, v_coord);
-                                    hit.texture_idx = texture_idx;
-                                    hit.is_textured = true;
-                                } else {
-                                    hit.uv = Point2<T>(0, 0); // default texture coordinates if not textured
-                                    hit.texture_idx = -1; // no texture
-                                    hit.is_textured = false;
-                                }
+
+                                    Vec3<T> Tside = (-std::sin(phi)) * tangent + (std::cos(phi)) * bitangent;
+
+                                    Vec3<T> N = hit.normal.toVec3();
+                                    Tside = (Tside - N * Tside.dot(N)).normalize();
+                                    Vec3<T> Bside = N.cross(Tside).normalize();
+
+                                    hit.tangent = Tside;
+                                    hit.bitangent = Bside;
+                                } 
                             }
                         }
                     }
@@ -161,19 +176,25 @@ class Cone : public Object<T> {
                         hit_any = true;
                         closest = tcap;
 
-                        if (is_textured) {
+                        hit.texture_idx = texture_idx;
+                        hit.bump_map_idx = bump_map_idx;
+
+                        if (texture_idx >= 0 || bump_map_idx >= 0) {
                             // compute texture coordinates for the hit point on the cone base
                             Vec3<T> radial = pcap - base;
                             T u = radial.dot(tangent) / (T(2) * r) + T(0.5);
                             T v_coord = radial.dot(bitangent) / (T(2) * r) + T(0.5);
                             hit.uv = Point2<T>(u, v_coord);
-                            hit.texture_idx = texture_idx;
-                            hit.is_textured = true;
-                        } else {
-                            hit.uv = Point2<T>(0, 0); // default texture coordinates if not textured
-                            hit.texture_idx = -1; // no texture
-                            hit.is_textured = false;
-                        }
+
+                            Vec3<T> N = hit.normal.toVec3();
+
+                            Vec3<T> Tcap = tangent;
+                            Tcap = (Tcap - N * Tcap.dot(N)).normalize();
+                            Vec3<T> Bcap = N.cross(Tcap).normalize();
+
+                            hit.tangent = Tcap;
+                            hit.bitangent = Bcap;
+                        } 
                     }
                 }
 

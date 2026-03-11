@@ -23,7 +23,8 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
     } 
 
     // STARTING WITH AMBIENT TERM
-    Vec3<T> N = hit.normal.toVec3();
+    Vec3<T> Ng = hit.normal.toVec3();
+    Vec3<T> N = Ng; // will be modified if bump mapping is applied
     Point3<T> P = hit.point;
     Vec3<T> V = (scene.camera.eye - P).normalize(); // view dir
     if (scene.camera.is_parallel) {
@@ -32,11 +33,40 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
     
     Vec3<T> material_Od = hit.material.Od; // base diffuse color from material
 
-    if (hit.is_textured && hit.texture_idx >= 0 && hit.texture_idx < static_cast<int>(scene.textures.size())) {
+    if (hit.texture_idx >= 0 && hit.texture_idx < static_cast<int>(scene.textures.size())) {
         const Texture<T>& tex = scene.textures[hit.texture_idx];
         Point2<T> uv = hit.uv;
         Vec3<T> tex_color = tex.sample(uv.x, uv.y);
         material_Od = tex_color; 
+    }
+
+    if (hit.bump_map_idx >= 0 && hit.bump_map_idx < static_cast<int>(scene.bump_maps.size())) {
+        const Texture<T>& bump = scene.bump_maps[hit.bump_map_idx];
+        Point2<T> uv = hit.uv;
+
+        // sample normal-map RGB in [0,1]
+        Vec3<T> bump_rgb = bump.sample(uv.x, uv.y);
+
+        // decode to tangent-space normal in [-1,1]
+        Vec3<T> n_tangent(
+            T(2) * bump_rgb.x - T(1),
+            T(2) * bump_rgb.y - T(1),
+            T(2) * bump_rgb.z - T(1)
+        );
+        n_tangent = n_tangent.normalize();
+
+        // TBN transform
+        Vec3<T> Tvec = hit.tangent.normalize();
+        Vec3<T> Nbase = N.normalize();
+        Tvec = (Tvec - Nbase * Tvec.dot(Nbase)).normalize();   // orthogonalize
+        Vec3<T> Bvec = Nbase.cross(Tvec);                      // recompute bitangent
+
+        Vec3<T> bumpedN =
+            Tvec * n_tangent.x +
+            Bvec * n_tangent.y +
+            Nbase * n_tangent.z;
+
+        N = bumpedN.normalize();
     }
 
     Vec3<T> color = hit.material.ka * material_Od; // ambient component
@@ -46,7 +76,7 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
 
         if (!light.type) { // directional == 0
             Vec3<T> L = light.direction_from(P).normalize();
-            Point3<T> origin = P + N * eps;
+            Point3<T> origin = P + Ng * eps;
             Ray<T> shadow_ray(origin, L);
 
             Hit<T> tmp;
@@ -60,7 +90,7 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene) {
             color += light.intensity * (diffuse + spec);
 
         } else { // point light == 1
-            Point3<T> origin = P + N * eps;
+            Point3<T> origin = P + Ng * eps;
             Vec3<T> sum(0, 0, 0);
 
             T radius = T(0.1); // hyperparameter, radius of sphere light for soft shadows
