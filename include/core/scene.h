@@ -31,6 +31,7 @@ class Scene {
         Camera<T> camera;
         ObjectList<T> objects;
         Vec3<T> bkgcolor;
+        T bkg_eta = 1;
         Material<T> current_material;
         std::vector<Light<T>> lights;
         std::vector<Point3<T>> vertices; // for triangles
@@ -200,8 +201,8 @@ class Scene {
 
                     imsize_set = true;
                 } else if (strcmp(keyword, "bkgcolor") == 0) {
-                    float bx, by, bz;
-                    if (sscanf(line, "%*s %f %f %f", &bx, &by, &bz) < 3) {
+                    float bx, by, bz, eta;
+                    if (sscanf(line, "%*s %f %f %f %f", &bx, &by, &bz, &eta) < 4) {
                         printf("[ERROR] Invalid bkgcolor parameters.\n");
                         fclose(file);
                         return false;
@@ -216,7 +217,14 @@ class Scene {
                         return false;
                     }
 
+                    if (eta <= 0.0f) {
+                        printf("[ERROR] Background eta must be positive.\n");
+                        fclose(file);
+                        return false;
+                    }
+
                     bkgcolor = Vec3<T>(static_cast<T>(bx), static_cast<T>(by), static_cast<T>(bz));
+                    bkg_eta = static_cast<T>(eta);
                     bkgcolor_set = true;
                 } else if (strcmp(keyword, "light") == 0) {
                     float lx, ly, lz, intensity;
@@ -330,12 +338,12 @@ class Scene {
                     dc = depth_cue;
                     depth_cueing_enabled = true;
                 } else if (strcmp(keyword, "mtlcolor") == 0) {
-                    float Odx, Ody, Odz, Osx, Osy, Osz, ka, kd, ks, n;
-                    if (sscanf(line, "%*s %f %f %f %f %f %f %f %f %f %f", 
+                    float Odx, Ody, Odz, Osx, Osy, Osz, ka, kd, ks, n, alpha, eta;
+                    if (sscanf(line, "%*s %f %f %f %f %f %f %f %f %f %f %f %f", 
                         &Odx, &Ody, &Odz, 
                         &Osx, &Osy, &Osz, 
                         &ka, &kd, &ks, 
-                        &n) < 10) {
+                        &n, &alpha, &eta) < 12) {
                         printf("[ERROR] Invalid mtlcolor parameters.\n");
                         fclose(file);
                         return false;
@@ -344,6 +352,8 @@ class Scene {
                     Material<T> current;
                     current.Od = Vec3<T>(static_cast<T>(Odx), static_cast<T>(Ody), static_cast<T>(Odz));
                     current.Os = Vec3<T>(static_cast<T>(Osx), static_cast<T>(Osy), static_cast<T>(Osz));
+                    current.alpha = static_cast<T>(alpha);
+                    current.eta = static_cast<T>(eta);
                     current.ka = static_cast<T>(ka);
                     current.kd = static_cast<T>(kd);
                     current.ks = static_cast<T>(ks);
@@ -358,9 +368,11 @@ class Scene {
                         current.Os.z < T(0.0f) || current.Os.z > T(1.0f) ||
                         current.ka < T(0.0f) || current.ka > T(1.0f) ||
                         current.kd < T(0.0f) || current.kd > T(1.0f) ||
-                        current.ks < T(0.0f) || current.ks > T(1.0f) || 
+                        current.ks < T(0.0f) || current.ks > T(1.0f) ||
+                        current.alpha < T(0.0f) || current.alpha > T(1.0f) ||
+                        current.eta <= T(0.0f) ||
                         current.n < T(0.0f) || current.n > T(128.0f)) { // commonly used range for shininess is [0, 128]    
-                        printf("[ERROR] mtlcolor values must be in [0, 1], shininess must be in [0, 128].\n");
+                        printf("[ERROR] mtlcolor values must be in [0, 1], shininess must be in [0, 128], and eta must be positive.\n");
                         fclose(file);
                         return false;
                     }

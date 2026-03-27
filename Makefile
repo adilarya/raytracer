@@ -6,7 +6,7 @@ SRC_DIR  = src
 SRCS     = $(wildcard $(SRC_DIR)/*.cpp)
 OBJS     = $(SRCS:.cpp=.o)
 
-TARGET   = raytracer1c
+TARGET   = raytracer1d
 
 all: $(TARGET)
 
