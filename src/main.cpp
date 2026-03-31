@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>   
+#include <vector>
 
 // for random seeds every time; for soft shadows
 #include <ctime>
@@ -37,18 +38,36 @@ T Schlick(T cos_theta, T eta_i, T eta_T) {
 }
 
 template<typename T>
-Vec3<T> ComputeLocalColor(
-    const Ray<T>& ray,
-    const Scene<T>& scene,
-    const Hit<T>& hit,
-    const Point3<T>& P,
-    const Vec3<T>& Ng,
-    const Vec3<T>& N,
-    const Vec3<T>& V,
-    const Vec3<T>& material_Od,
-    T eps,
-    T inf
-) {
+T ShadowVisibility(const Scene<T>& scene, const Ray<T>& shadow_ray, T eps, T max_t) {
+    T visibility = T(1);
+    T tmin = eps;
+
+    while (true) {
+        Hit<T> h;
+        if (!scene.objects.intersect(shadow_ray, tmin, max_t, h)) {
+            break;
+        }
+
+        if (h.t < eps * 10) {
+            tmin = h.t + eps;
+            continue;
+        }
+
+        // Opaque object fully blocks light, transparent object only reduces it
+        visibility *= (T(1) - h.material.alpha);
+
+        if (visibility <= T(1e-3)) {
+            return T(0);
+        }
+
+        tmin = h.t + eps;
+    }
+
+    return visibility;
+}
+
+template<typename T>
+Vec3<T> ComputeLocalColor(const Ray<T>& ray, const Scene<T>& scene, const Hit<T>& hit, const Point3<T>& P, const Vec3<T>& Ng, const Vec3<T>& N, const Vec3<T>& V, const Vec3<T>& material_Od, T eps, T inf) {
     Vec3<T> color = hit.material.ka * material_Od;
 
     for (const auto& light : scene.lights) {
@@ -57,17 +76,15 @@ Vec3<T> ComputeLocalColor(
             Point3<T> origin = P + Ng * eps;
             Ray<T> shadow_ray(origin, L);
 
-            Hit<T> tmp;
-            if (scene.objects.intersect(shadow_ray, eps, inf, tmp)) {
-                continue;
-            }
+            T visibility = ShadowVisibility(scene, shadow_ray, eps, inf);
 
             Vec3<T> diffuse = hit.material.kd * material_Od * std::max(N.dot(L), T(0));
             Vec3<T> H = (L + V).normalize();
             Vec3<T> spec = hit.material.ks * hit.material.Os *
-                           std::pow(std::max(N.dot(H), T(0)), hit.material.n);
+                        std::pow(std::max(N.dot(H), T(0)), hit.material.n);
 
-            color += light.intensity * (diffuse + spec);
+            // ambient stays untouched; only diffuse/spec get shadowed
+            color += light.intensity * visibility * (diffuse + spec);
         } else { // point light
             Point3<T> origin = P + Ng * eps;
             Vec3<T> sum(0, 0, 0);
@@ -99,17 +116,19 @@ Vec3<T> ComputeLocalColor(
 
                 Ray<T> shadow_ray(origin, Ls);
 
-                Hit<T> tmp;
-                if (scene.objects.intersect(shadow_ray, eps, std::max(dist_s - eps, eps), tmp)) {
-                    continue;
-                }
+                T visibility = ShadowVisibility(
+                    scene,
+                    shadow_ray,
+                    eps,
+                    std::max(dist_s - eps, eps)
+                );
 
                 T ndotl = std::max(N.dot(Ls), T(0));
                 Vec3<T> diffuse = hit.material.kd * material_Od * ndotl;
                 Vec3<T> Hs = (Ls + V).normalize();
                 T ndoth = std::max(N.dot(Hs), T(0));
                 Vec3<T> spec = hit.material.ks * hit.material.Os *
-                               std::pow(ndoth, hit.material.n);
+                            std::pow(ndoth, hit.material.n);
 
                 T att = T(1);
                 if (light.has_attenuation) {
@@ -118,7 +137,7 @@ Vec3<T> ComputeLocalColor(
                     att = T(1) / den;
                 }
 
-                sum += att * (diffuse + spec);
+                sum += att * visibility * (diffuse + spec);
             }
 
             color += light.intensity * (sum / static_cast<T>(S));
@@ -139,13 +158,15 @@ Vec3<T> ComputeLocalColor(
 }
 
 template<typename T>
-Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene, int depth, T current_eta) {
+Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene, int depth, const std::vector<T>& eta_stack) {
     T eps = T(1e-4);
     T inf = std::numeric_limits<T>::infinity();
 
+    T current_eta = eta_stack.empty() ? scene.bkg_eta : eta_stack.back();
+
     const int MAX_DEPTH = 10;
     if (depth >= MAX_DEPTH) {
-        return scene.bkgcolor;
+        return Vec3<T>(0, 0, 0);
     }
 
     Hit<T> hit;
@@ -192,28 +213,76 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene, int depth, T current_
         N = bumpedN.normalize();
     }
 
-    // LOCAL COLOR
     Vec3<T> local_color = ComputeLocalColor(
         ray, scene, hit, P, Ng, N, V, material_Od, eps, inf
     );
 
-    // REFLECTION
+    Vec3<T> I = ray.direction.normalize();
+    Vec3<T> Nuse = N.normalize();
+
     Vec3<T> reflected_color(0, 0, 0);
+    Vec3<T> refracted_color(0, 0, 0);
 
-    if (hit.material.ks > T(0)) {
-        Vec3<T> I = ray.direction.normalize();
-        Vec3<T> Nuse = N.normalize();
+    bool can_refract = hit.material.alpha < T(1);
+    bool can_reflect = (hit.material.ks > T(0)) || can_refract;
 
-        Vec3<T> reflection_direction = Reflect(I, Nuse).normalize();
-        Point3<T> reflection_origin = P + Nuse * eps;
+    T eta_i = current_eta;
+    T eta_t = current_eta;
+    std::vector<T> next_stack = eta_stack;
 
-        reflected_color = ShadeRay(Ray<T>(reflection_origin, reflection_direction), scene, depth + 1, current_eta);
+    if (can_refract) {
+        if (hit.front_face) {
+            eta_t = hit.material.eta;
+            next_stack.push_back(hit.material.eta);
+        } else {
+            if (!next_stack.empty()) {
+                next_stack.pop_back();
+            }
+            eta_t = next_stack.empty() ? scene.bkg_eta : next_stack.back();
+        }
     }
 
-    // COMBINED
-    Vec3<T> final_color = (T(1) - hit.material.ks) * local_color;
-    if (hit.material.ks > T(0)) {
-        final_color += hit.material.ks * reflected_color;
+    T cos_theta = std::min(std::max((-I).dot(Nuse), T(0)), T(1));
+    T fresnel = can_refract ? Schlick(cos_theta, eta_i, eta_t) : T(0);
+
+    if (can_reflect) {
+        Vec3<T> reflection_direction = Reflect(I, Nuse).normalize();
+        Point3<T> reflection_origin = P + reflection_direction * eps;
+
+        reflected_color = ShadeRay(
+            Ray<T>(reflection_origin, reflection_direction),
+            scene,
+            depth + 1,
+            eta_stack
+        );
+    }
+
+    if (can_refract) {
+        Vec3<T> refraction_direction;
+        if (Refract(I, Nuse, eta_i, eta_t, refraction_direction)) {
+            Point3<T> refraction_origin = P + refraction_direction * eps;
+
+            refracted_color = ShadeRay(
+                Ray<T>(refraction_origin, refraction_direction),
+                scene,
+                depth + 1,
+                next_stack
+            );
+        } else {
+            fresnel = T(1); // total internal reflection
+        }
+    }
+
+    Vec3<T> final_color(0, 0, 0);
+
+    if (can_refract) {
+        Vec3<T> recursive_color = fresnel * reflected_color
+                                + (T(1) - fresnel) * refracted_color;
+        final_color = hit.material.alpha * local_color + (T(1) - hit.material.alpha) * recursive_color;
+    } else if (can_reflect) {
+        final_color = local_color + hit.material.ks * fresnel * reflected_color;
+    } else {
+        final_color = local_color;
     }
 
     return final_color;
@@ -252,10 +321,13 @@ void RenderPPM(const Scene<T>& scene, const std::string& filename) {
     fprintf(ppm_file, "%d %d\n", w, h);
     fprintf(ppm_file, "255\n");
 
+    std::vector<T> initial_eta_stack;
+    initial_eta_stack.push_back(scene.bkg_eta);
+
     for (int j = 0; j < h; j++) {
         for (int i = 0; i < w; i++) {
             Ray<T> r = scene.camera.get_ray(i, j);
-            Vec3<T> c = ShadeRay(r, scene, 0, scene.bkg_eta);
+            Vec3<T> c = ShadeRay(r, scene, 0, initial_eta_stack);
             
             // clamping to [0, 1] just in case
             c.x = std::min(std::max(c.x, T(0)), T(1));
