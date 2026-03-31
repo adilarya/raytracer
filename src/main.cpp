@@ -10,6 +10,20 @@
 // for random seeds every time; for soft shadows
 #include <ctime>
 
+constexpr bool ENABLE_ATTENUATION_EC = false;
+constexpr bool ENABLE_DIFFUSE_GI_EC = true;   // turn on only for GI renders
+
+constexpr int GI_SAMPLES = 2048;                // debug: 128-512
+constexpr int GI_MAX_BOUNCES = 1;              // 1 is enough for assignment-style demo
+constexpr double PI_D = 3.14159265358979323846;
+
+template<typename T>
+struct MediumState {
+    T eta;
+    Point3<T> entry_point;
+    Vec3<T> sigma;   // attenuation coefficient per RGB channel
+};
+
 template<typename T> 
 Vec3<T> Reflect(const Vec3<T>& I, const Vec3<T>& N) {
     return I - T(2) * I.dot(N) * N;
@@ -35,6 +49,65 @@ T Schlick(T cos_theta, T eta_i, T eta_T) {
     T r0 = (eta_i - eta_T) / (eta_i + eta_T);
     r0 = r0 * r0;
     return r0 + (T(1) - r0) * std::pow(T(1) - cos_theta, T(5));
+}
+
+template<typename T>
+T Rand01() {
+    return static_cast<T>(rand()) / static_cast<T>(RAND_MAX);
+}
+
+template<typename T>
+Vec3<T> ExpVec(const Vec3<T>& v) {
+    return Vec3<T>(
+        std::exp(v.x),
+        std::exp(v.y),
+        std::exp(v.z)
+    );
+}
+
+// Simple attenuation model derived from opacity and diffuse color.
+// Higher alpha => stronger attenuation.
+// Darker Od can tint the transmitted light more.
+template<typename T>
+Vec3<T> MaterialSigma(const Material<T>& m) {
+    T base = T(2.0) * m.alpha;
+
+    return Vec3<T>(
+        base * (T(0.25) + (T(1) - m.Od.x)),
+        base * (T(0.25) + (T(1) - m.Od.y)),
+        base * (T(0.25) + (T(1) - m.Od.z))
+    );
+}
+
+template<typename T>
+void BuildONB(const Vec3<T>& N, Vec3<T>& Tvec, Vec3<T>& Bvec) {
+    Vec3<T> n = N.normalize();
+
+    if (std::abs(n.x) > std::abs(n.z)) {
+        Tvec = Vec3<T>(-n.y, n.x, 0).normalize();
+    } else {
+        Tvec = Vec3<T>(0, -n.z, n.y).normalize();
+    }
+
+    Bvec = n.cross(Tvec).normalize();
+}
+
+template<typename T>
+Vec3<T> CosineWeightedHemisphereDirection(const Vec3<T>& N) {
+    T u1 = Rand01<T>();
+    T u2 = Rand01<T>();
+
+    T r = std::sqrt(u1);
+    T theta = T(2) * T(PI_D) * u2;
+
+    T x = r * std::cos(theta);
+    T y = r * std::sin(theta);
+    T z = std::sqrt(T(1) - u1);
+
+    Vec3<T> Tvec, Bvec;
+    BuildONB(N, Tvec, Bvec);
+
+    return (Tvec * x + Bvec * y + N.normalize() * z).normalize();
 }
 
 template<typename T>
@@ -158,11 +231,11 @@ Vec3<T> ComputeLocalColor(const Ray<T>& ray, const Scene<T>& scene, const Hit<T>
 }
 
 template<typename T>
-Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene, int depth, const std::vector<T>& eta_stack) {
+Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene, int depth, const std::vector<MediumState<T>>& media_stack, int diffuse_depth = 0) {
     T eps = T(1e-4);
     T inf = std::numeric_limits<T>::infinity();
 
-    T current_eta = eta_stack.empty() ? scene.bkg_eta : eta_stack.back();
+    T current_eta = media_stack.empty() ? scene.bkg_eta : media_stack.back().eta;
 
     const int MAX_DEPTH = 10;
     if (depth >= MAX_DEPTH) {
@@ -217,6 +290,40 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene, int depth, const std:
         ray, scene, hit, P, Ng, N, V, material_Od, eps, inf
     );
 
+    Vec3<T> indirect_diffuse(0, 0, 0);
+
+    if (ENABLE_DIFFUSE_GI_EC &&
+        diffuse_depth < GI_MAX_BOUNCES &&
+        hit.material.kd > T(0)) {
+
+        for (int s = 0; s < GI_SAMPLES; s++) {
+            Vec3<T> wi = CosineWeightedHemisphereDirection(N);
+            Point3<T> bounce_origin = P + wi * eps;
+
+            Vec3<T> Li = ShadeRay(
+                Ray<T>(bounce_origin, wi),
+                scene,
+                depth + 1,
+                media_stack,
+                diffuse_depth + 1
+            );
+
+            indirect_diffuse += Li;
+        }
+
+        indirect_diffuse = indirect_diffuse / static_cast<T>(GI_SAMPLES);
+
+        // Cosine-weighted Lambertian estimator:
+        // indirect contribution ≈ kd * Od * average incoming radiance
+        Vec3<T> gi_term(
+            material_Od.x * indirect_diffuse.x,
+            material_Od.y * indirect_diffuse.y,
+            material_Od.z * indirect_diffuse.z
+        );
+
+        local_color += hit.material.kd * gi_term;
+    }
+
     Vec3<T> I = ray.direction.normalize();
     Vec3<T> Nuse = N.normalize();
 
@@ -228,17 +335,45 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene, int depth, const std:
 
     T eta_i = current_eta;
     T eta_t = current_eta;
-    std::vector<T> next_stack = eta_stack;
+
+    std::vector<MediumState<T>> next_media_stack = media_stack;
+
+    // For attenuation extra credit: color attenuation to apply when exiting a medium
+    Vec3<T> transmission_attenuation(T(1), T(1), T(1));
 
     if (can_refract) {
         if (hit.front_face) {
             eta_t = hit.material.eta;
-            next_stack.push_back(hit.material.eta);
+
+            MediumState<T> entered;
+            entered.eta = hit.material.eta;
+            entered.entry_point = P;
+            entered.sigma = MaterialSigma(hit.material);
+
+            next_media_stack.push_back(entered);
         } else {
-            if (!next_stack.empty()) {
-                next_stack.pop_back();
+            // exiting the current medium
+            if (!media_stack.empty() && ENABLE_ATTENUATION_EC) {
+                transmission_attenuation = Vec3<T>(1, 1, 1);
+
+                for (const auto& m : media_stack) {
+                    T distance_inside = (P - m.entry_point).length();
+                    Vec3<T> exponent = m.sigma * (-distance_inside);
+                    Vec3<T> att = ExpVec(exponent);
+
+                    transmission_attenuation = Vec3<T>(
+                        transmission_attenuation.x * att.x,
+                        transmission_attenuation.y * att.y,
+                        transmission_attenuation.z * att.z
+                    );
+                }
             }
-            eta_t = next_stack.empty() ? scene.bkg_eta : next_stack.back();
+
+            if (!next_media_stack.empty()) {
+                next_media_stack.pop_back();
+            }
+
+            eta_t = next_media_stack.empty() ? scene.bkg_eta : next_media_stack.back().eta;
         }
     }
 
@@ -253,7 +388,8 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene, int depth, const std:
             Ray<T>(reflection_origin, reflection_direction),
             scene,
             depth + 1,
-            eta_stack
+            media_stack,
+            diffuse_depth
         );
     }
 
@@ -266,8 +402,18 @@ Vec3<T> ShadeRay(const Ray<T>& ray, const Scene<T>& scene, int depth, const std:
                 Ray<T>(refraction_origin, refraction_direction),
                 scene,
                 depth + 1,
-                next_stack
+                next_media_stack,
+                diffuse_depth
             );
+
+            // Extra credit attenuation: apply Beer-style attenuation on exit
+            if (ENABLE_ATTENUATION_EC) {
+                refracted_color = Vec3<T>(
+                    refracted_color.x * transmission_attenuation.x,
+                    refracted_color.y * transmission_attenuation.y,
+                    refracted_color.z * transmission_attenuation.z
+                );
+            }
         } else {
             fresnel = T(1); // total internal reflection
         }
@@ -321,13 +467,12 @@ void RenderPPM(const Scene<T>& scene, const std::string& filename) {
     fprintf(ppm_file, "%d %d\n", w, h);
     fprintf(ppm_file, "255\n");
 
-    std::vector<T> initial_eta_stack;
-    initial_eta_stack.push_back(scene.bkg_eta);
+    std::vector<MediumState<T>> initial_media_stack;
 
     for (int j = 0; j < h; j++) {
         for (int i = 0; i < w; i++) {
             Ray<T> r = scene.camera.get_ray(i, j);
-            Vec3<T> c = ShadeRay(r, scene, 0, initial_eta_stack);
+            Vec3<T> c = ShadeRay(r, scene, 0, initial_media_stack, 0);
             
             // clamping to [0, 1] just in case
             c.x = std::min(std::max(c.x, T(0)), T(1));
